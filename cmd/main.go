@@ -39,8 +39,8 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	"github.com/konflux-ci/alert-manager-kueue-admission/internal/controller"
-	"github.com/konflux-ci/alert-manager-kueue-admission/pkg/watcher"
+	"github.com/konflux-ci/kueue-external-admission/internal/controller"
+	"github.com/konflux-ci/kueue-external-admission/pkg/watcher"
 
 	// +kubebuilder:scaffold:imports
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"

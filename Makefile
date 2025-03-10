@@ -122,10 +122,10 @@ PLATFORMS ?= linux/arm64,linux/amd64,linux/s390x,linux/ppc64le
 docker-buildx: ## Build and push docker image for the manager for cross-platform support
 	# copy existing Dockerfile and insert --platform=${BUILDPLATFORM} into Dockerfile.cross, and preserve the original Dockerfile
 	sed -e '1 s/\(^FROM\)/FROM --platform=\$$\{BUILDPLATFORM\}/; t' -e ' 1,// s//FROM --platform=\$$\{BUILDPLATFORM\}/' Dockerfile > Dockerfile.cross
-	- $(CONTAINER_TOOL) buildx create --name alert-manager-kueue-admission-builder
-	$(CONTAINER_TOOL) buildx use alert-manager-kueue-admission-builder
+	- $(CONTAINER_TOOL) buildx create --name kueue-external-admission-builder
+	$(CONTAINER_TOOL) buildx use kueue-external-admission-builder
 	- $(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) --tag ${IMG} -f Dockerfile.cross .
-	- $(CONTAINER_TOOL) buildx rm alert-manager-kueue-admission-builder
+	- $(CONTAINER_TOOL) buildx rm kueue-external-admission-builder
 	rm Dockerfile.cross
 
 .PHONY: build-installer

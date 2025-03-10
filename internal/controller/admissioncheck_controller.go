@@ -32,7 +32,7 @@ import (
 )
 
 const (
-	ControllerName = "konflux-ci.dev/alert-manager-admission"
+	ControllerName = "konflux-ci.dev/kueue-external-admission"
 )
 
 // AdmissionCheckReconciler reconciles a AdmissionCheck object

@@ -5,8 +5,8 @@
 domain: konflux-ci.dev
 layout:
 - go.kubebuilder.io/v4
-projectName: alert-manager-kueue-admission
-repo: github.com/konflux-ci/alert-manager-kueue-admission
+projectName: kueue-external-admission
+repo: github.com/konflux-ci/kueue-external-admission
 resources:
 - controller: true
   domain: konflux-ci.dev

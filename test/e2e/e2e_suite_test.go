@@ -25,7 +25,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/konflux-ci/alert-manager-kueue-admission/test/utils"
+	"github.com/konflux-ci/kueue-external-admission/test/utils"
 )
 
 var (

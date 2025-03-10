@@ -19,7 +19,7 @@ package controller
 import (
 	"context"
 
-	"github.com/konflux-ci/alert-manager-kueue-admission/pkg/watcher"
+	"github.com/konflux-ci/kueue-external-admission/pkg/watcher"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -31,7 +31,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-const CheckName = "am-test"
+const CheckName = "konflux-ci.dev/kueue-external-admission"
 const IndexByStateKey = "status.admissionChecks." + CheckName + ".state"
 
 // WorkloadReconciler reconciles a Workload object
