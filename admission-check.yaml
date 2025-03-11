@@ -3,4 +3,4 @@ kind: AdmissionCheck
 metadata:
   name: am-test
 spec:
-  controllerName: konflux-ci.dev/alert-manager-admission
+  controllerName: konflux-ci.dev/kueue-external-admission

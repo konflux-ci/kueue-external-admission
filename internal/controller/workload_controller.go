@@ -28,15 +28,16 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-const CheckName = "konflux-ci.dev/kueue-external-admission"
-const IndexByStateKey = "status.admissionChecks." + CheckName + ".state"
+const IndexByHasAdmission = "status.hasAdmission"
+const HasAdmission = "hasAdmission"
 
 // WorkloadReconciler reconciles a Workload object
 type WorkloadReconciler struct {
-	client.Client
+	client   client.Client
 	Scheme   *runtime.Scheme
 	admitter watcher.Admitter
 }
@@ -66,7 +67,7 @@ func (w *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	log := ctrl.LoggerFrom(ctx)
 	wl := &kueue.Workload{}
 
-	err := w.Get(ctx, req.NamespacedName, wl)
+	err := w.client.Get(ctx, req.NamespacedName, wl)
 	if err != nil {
 		return reconcile.Result{}, client.IgnoreNotFound(err)
 	}
@@ -77,28 +78,43 @@ func (w *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return reconcile.Result{}, nil
 	}
 
-	// get the lists of relevant checks?
+	// Get the checks which are relevant to our controller. AC parameters are not supported
+	relevantChecks, err := admissioncheck.FilterForController(ctx, w.client, wl.Status.AdmissionChecks, ControllerName)
+	if err != nil {
+		return reconcile.Result{}, err
+	}
 
-	state := kueue.CheckStatePending
-	message := "denying workload"
+	if len(relevantChecks) == 0 {
+		log.Info("Didn't find relevant checks")
+		return reconcile.Result{}, nil
+	}
+
+	// todo: move into a function
 	shouldAdmit, err := w.admitter.ShouldAdmit()
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	if shouldAdmit {
-		state = kueue.CheckStateReady
-		message = "approving workload"
+	wlPatch := workload.BaseSSAWorkload(wl)
+	for _, check := range relevantChecks {
+		state := kueue.CheckStatePending
+		message := "denying workload"
+
+		if shouldAdmit {
+			state = kueue.CheckStateReady
+			message = "approving workload"
+		}
+
+		newCheck := kueue.AdmissionCheckState{
+			Name:    check,
+			State:   state,
+			Message: message,
+		}
+
+		workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, newCheck)
 	}
 
-	newCheck := kueue.AdmissionCheckState{
-		Name:    CheckName,
-		State:   state,
-		Message: message,
-	}
-	wlPatch := workload.BaseSSAWorkload(wl)
-	workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, newCheck)
-	// todo: move the field owner to its own var and add a domain name to it
-	err = w.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner("am-admission"), client.ForceOwnership)
+	// make the update only if the workload was changed?
+	err = w.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(ControllerName), client.ForceOwnership)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -109,7 +125,7 @@ func (w *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 // SetupWithManager sets up the controller with the Manager.
 func (w *WorkloadReconciler) SetupWithManager(mgr ctrl.Manager, eventsChan <-chan event.GenericEvent) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		// Uncomment the following line adding a pointer to an instance of the controlled resource as an argument
+		// todo: reconcile workloads when a new admission check is added to the cluster
 		For(&kueue.Workload{}).
 		Named("workload").
 		WatchesRawSource(
@@ -136,10 +152,11 @@ func NewWorkloadLister(client client.Client) *WorkloadLister {
 func (w *WorkloadLister) List() ([]client.Object, error) {
 	wl := &kueue.WorkloadList{}
 	// todo: query only queued workloads using an index
-	err := w.client.List(context.TODO(), wl, client.MatchingFields{IndexByStateKey: string(kueue.CheckStatePending)})
+	err := w.client.List(context.TODO(), wl, client.MatchingFields{IndexByHasAdmission: HasAdmission})
 	if err != nil {
 		return nil, err
 	}
+	// todo: filter completed/running workloads
 	objects := make([]client.Object, len(wl.Items))
 	for i := range wl.Items {
 		objects[i] = &wl.Items[i]
@@ -148,21 +165,16 @@ func (w *WorkloadLister) List() ([]client.Object, error) {
 	return objects, nil
 }
 
-// index pending workloads which has need our admission check
+// index workloads which has need our admission check
 func SetupIndex(ctx context.Context, indexer client.FieldIndexer) error {
-	return indexer.IndexField(ctx, &kueue.Workload{}, IndexByStateKey, func(obj client.Object) []string {
+	return indexer.IndexField(ctx, &kueue.Workload{}, IndexByHasAdmission, func(obj client.Object) []string {
 		wl, isWl := obj.(*kueue.Workload)
 
 		if !isWl || len(wl.Status.AdmissionChecks) == 0 {
 			return nil
 		}
 
-		cs := workload.FindAdmissionCheck(wl.Status.AdmissionChecks, CheckName)
-		if cs == nil {
-			return nil
-		}
-
-		return []string{string(cs.State)}
+		return []string{HasAdmission}
 
 	})
 }
