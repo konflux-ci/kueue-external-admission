@@ -3,7 +3,7 @@
 Admit Kueue Workloads based on external conditions.
 
 ## Description
-// TODO(user): An in-depth paragraph about your project and overview of use
+// TODO(user): An in-depth paragraph about your project and overview of use.
 
 ## Getting Started
 
