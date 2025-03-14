@@ -6,7 +6,7 @@ namespace: alert-manager-kueue-admission-system
 # "wordpress" becomes "alices-wordpress".
 # Note that it should also match with the prefix (text before '-') of the namespace
 # field above.
-namePrefix: alert-manager-kueue-admission-
+namePrefix: alert-mgr-kueue-admission-
 
 # Labels to add to all resources and selectors.
 #labels:

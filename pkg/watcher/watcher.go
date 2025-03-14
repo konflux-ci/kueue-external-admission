@@ -2,9 +2,8 @@ package watcher
 
 import (
 	"context"
-	"time"
-
 	"strconv"
+	"time"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -13,6 +12,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 )
+
+// +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch
 
 type Lister interface {
 	List() ([]client.Object, error)
@@ -37,7 +38,6 @@ func NewWatcher(
 	admitter Admitter,
 	period time.Duration,
 ) (*Watcher, <-chan event.GenericEvent) {
-
 	ch := make(chan event.GenericEvent)
 
 	return &Watcher{
