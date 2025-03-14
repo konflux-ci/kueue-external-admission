@@ -32,8 +32,10 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-const IndexByHasAdmission = "status.hasAdmission"
-const HasAdmission = "hasAdmission"
+const (
+	IndexByHasAdmission = "status.hasAdmission"
+	HasAdmission        = "hasAdmission"
+)
 
 // WorkloadReconciler reconciles a Workload object
 type WorkloadReconciler struct {
@@ -50,9 +52,9 @@ func NewWorkloadController(client client.Client, schema *runtime.Scheme, admitte
 	}
 }
 
-// +kubebuilder:rbac:groups=kueue.x-k8s.io.konflux-ci.dev,resources=workloads,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=kueue.x-k8s.io.konflux-ci.dev,resources=workloads/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=kueue.x-k8s.io.konflux-ci.dev,resources=workloads/finalizers,verbs=update
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/finalizers,verbs=update
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -175,6 +177,5 @@ func SetupIndex(ctx context.Context, indexer client.FieldIndexer) error {
 		}
 
 		return []string{HasAdmission}
-
 	})
 }
