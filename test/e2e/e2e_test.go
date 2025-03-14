@@ -49,9 +49,14 @@ var _ = Describe("Manager", Ordered, func() {
 	// enforce the restricted security policy to the namespace, installing CRDs,
 	// and deploying the controller.
 	BeforeAll(func() {
-		By("creating manager namespace")
-		cmd := exec.Command("kubectl", "create", "ns", namespace)
+		By("deploying kueue")
+		cmd := exec.Command("make", "kueue", fmt.Sprintf("IMG=%s", projectImage))
 		_, err := utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred(), "Failed to install kueue")
+
+		By("creating manager namespace")
+		cmd = exec.Command("kubectl", "create", "ns", namespace)
+		_, err = utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Failed to create namespace")
 
 		By("labeling the namespace to enforce the restricted security policy")
