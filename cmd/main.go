@@ -216,12 +216,6 @@ func main() {
 
 	ctx := ctrl.SetupSignalHandler()
 
-	err = controller.SetupIndex(ctx, mgr.GetFieldIndexer())
-	if err != nil {
-		setupLog.Error(err, "Failed to setup index")
-		os.Exit(1)
-	}
-
 	watcher, eventsCh := watcher.NewWatcher(
 		controller.NewWorkloadLister(mgr.GetClient()),
 		watcher.NewConfigAdmitter(
