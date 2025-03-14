@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: config
+  name: alert-mgr-kueue-admission-config
   namespace: kueue-external-admission
 data:
   shouldAdmit: "false"
