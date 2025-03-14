@@ -37,7 +37,7 @@ const namespace = "alert-manager-kueue-admission-system"
 const serviceAccountName = "alert-manager-kueue-admission-controller-manager"
 
 // metricsServiceName is the name of the metrics service of the project
-const metricsServiceName = "alert-manager-kueue-admission-controller-manager-metrics-service"
+const metricsServiceName = "alert-mgr-kueue-admission-controller-manager-metrics-service"
 
 // metricsRoleBindingName is the name of the RBAC that will be created to allow get the metrics data
 const metricsRoleBindingName = "alert-manager-kueue-admission-metrics-binding"
