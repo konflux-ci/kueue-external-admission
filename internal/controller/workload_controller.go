@@ -32,8 +32,10 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-const IndexByHasAdmission = "status.hasAdmission"
-const HasAdmission = "hasAdmission"
+const (
+	IndexByHasAdmission = "status.hasAdmission"
+	HasAdmission        = "hasAdmission"
+)
 
 // WorkloadReconciler reconciles a Workload object
 type WorkloadReconciler struct {
@@ -90,7 +92,7 @@ func (w *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	// todo: move into a function
-	shouldAdmit, err := w.admitter.ShouldAdmit()
+	shouldAdmit, err := w.admitter.ShouldAdmit(ctx)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -149,10 +151,10 @@ func NewWorkloadLister(client client.Client) *WorkloadLister {
 
 // List implements watcher.Lister.
 // Subtle: this method shadows the method (Client).List of WorkloadLister.Client.
-func (w *WorkloadLister) List() ([]client.Object, error) {
+func (w *WorkloadLister) List(ctx context.Context) ([]client.Object, error) {
 	wl := &kueue.WorkloadList{}
 	// todo: query only queued workloads using an index
-	err := w.client.List(context.TODO(), wl, client.MatchingFields{IndexByHasAdmission: HasAdmission})
+	err := w.client.List(ctx, wl, client.MatchingFields{IndexByHasAdmission: HasAdmission})
 	if err != nil {
 		return nil, err
 	}
@@ -175,6 +177,5 @@ func SetupIndex(ctx context.Context, indexer client.FieldIndexer) error {
 		}
 
 		return []string{HasAdmission}
-
 	})
 }

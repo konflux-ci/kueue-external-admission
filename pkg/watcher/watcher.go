@@ -2,9 +2,8 @@ package watcher
 
 import (
 	"context"
-	"time"
-
 	"strconv"
+	"time"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -15,12 +14,12 @@ import (
 )
 
 type Lister interface {
-	List() ([]client.Object, error)
+	List(context.Context) ([]client.Object, error)
 }
 
 type Admitter interface {
 	// todo: add reason
-	ShouldAdmit() (bool, error)
+	ShouldAdmit(context.Context) (bool, error)
 }
 
 type Watcher struct {
@@ -37,7 +36,6 @@ func NewWatcher(
 	admitter Admitter,
 	period time.Duration,
 ) (*Watcher, <-chan event.GenericEvent) {
-
 	ch := make(chan event.GenericEvent)
 
 	return &Watcher{
@@ -60,7 +58,7 @@ func (w *Watcher) Start(ctx context.Context) error {
 				w.logger.Info("Received done signal")
 				return
 			case <-ticker.C:
-				err := w.Run()
+				err := w.Run(ctx)
 				if err != nil {
 					// todo: add proper monitoring
 					panic(err)
@@ -72,10 +70,10 @@ func (w *Watcher) Start(ctx context.Context) error {
 	return nil
 }
 
-func (w *Watcher) Run() error {
+func (w *Watcher) Run(ctx context.Context) error {
 	// todo: should we propagate a context to Query and notifiy?
 	w.logger.Info("Running Query")
-	shouldAdmit, err := w.admitter.ShouldAdmit()
+	shouldAdmit, err := w.admitter.ShouldAdmit(ctx)
 	if err != nil {
 		// should we change the condition? how to avoid blocking the condition on false?
 		return err
@@ -83,7 +81,7 @@ func (w *Watcher) Run() error {
 	if w.condition != shouldAdmit {
 		w.condition = shouldAdmit
 		w.logger.Info("Condition changed, sending notification")
-		err = w.notify()
+		err = w.notify(ctx)
 		if err != nil {
 			return err
 		}
@@ -92,12 +90,12 @@ func (w *Watcher) Run() error {
 	return nil
 }
 
-func (w *Watcher) ShouldAdmit() (bool, error) {
+func (w *Watcher) ShouldAdmit(ctx context.Context) (bool, error) {
 	return w.condition, nil
 }
 
-func (w *Watcher) notify() error {
-	objects, err := w.lister.List()
+func (w *Watcher) notify(ctx context.Context) error {
+	objects, err := w.lister.List(ctx)
 	if err != nil {
 		return err
 	}
@@ -131,9 +129,9 @@ func NewConfigAdmitter(
 }
 
 // ShouldAdmit implements Admitter.
-func (c *ConfigAdmitter) ShouldAdmit() (bool, error) {
+func (c *ConfigAdmitter) ShouldAdmit(ctx context.Context) (bool, error) {
 	cm := &corev1.ConfigMap{}
-	err := c.client.Get(context.TODO(), c.configMapNsName, cm)
+	err := c.client.Get(ctx, c.configMapNsName, cm)
 	if err != nil {
 		// need to add error handling
 		c.logger.Error(err, "Failed to get configmap")
