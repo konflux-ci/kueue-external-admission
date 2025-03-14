@@ -18,9 +18,12 @@ package controller
 
 import (
 	"context"
+	"slices"
 
 	"github.com/konflux-ci/kueue-external-admission/pkg/watcher"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -30,11 +33,6 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/workload"
-)
-
-const (
-	IndexByHasAdmission = "status.hasAdmission"
-	HasAdmission        = "hasAdmission"
 )
 
 // WorkloadReconciler reconciles a Workload object
@@ -152,30 +150,34 @@ func NewWorkloadLister(client client.Client) *WorkloadLister {
 // List implements watcher.Lister.
 // Subtle: this method shadows the method (Client).List of WorkloadLister.Client.
 func (w *WorkloadLister) List(ctx context.Context) ([]client.Object, error) {
-	wl := &kueue.WorkloadList{}
-	// todo: query only queued workloads using an index
-	err := w.client.List(ctx, wl, client.MatchingFields{IndexByHasAdmission: HasAdmission})
-	if err != nil {
+	ww := &kueue.WorkloadList{}
+	if err := w.client.List(ctx, ww, &client.ListOptions{
+		// For performance reasons we'll deepcopy after filtering the list
+		// IMPORTANT: DO NOT make any change to the listed workspaces
+		UnsafeDisableDeepCopy: ptr.To(true),
+	}); err != nil {
 		return nil, err
 	}
-	// todo: filter completed/running workloads
-	objects := make([]client.Object, len(wl.Items))
-	for i := range wl.Items {
-		objects[i] = &wl.Items[i]
+
+	// let's prepare for the worst case, we'll clip the slice before returning it
+	workloads := make([]client.Object, 0, len(ww.Items))
+	// build the filtered list of workspaces
+	for _, iw := range ww.Items {
+		if w.isWorkloadAdmittedAndNotFinished(&iw) {
+			// IMPORTANT: as we didn't DeepCopy before, we NEED to DeepCopy now
+			workloads = append(workloads, iw.DeepCopy())
+		}
 	}
 
-	return objects, nil
+	// reduce the capacity of the list before returning it
+	return slices.Clip(workloads), nil
 }
 
-// index workloads which has need our admission check
-func SetupIndex(ctx context.Context, indexer client.FieldIndexer) error {
-	return indexer.IndexField(ctx, &kueue.Workload{}, IndexByHasAdmission, func(obj client.Object) []string {
-		wl, isWl := obj.(*kueue.Workload)
+// isWorkloadAdmittedAndNotFinished returns true if the workload has been admitted
+// and hasn't still finished.
+func (w *WorkloadLister) isWorkloadAdmittedAndNotFinished(workload *kueue.Workload) bool {
+	admitted := len(workload.Status.AdmissionChecks) == 0
+	finished := meta.IsStatusConditionTrue(workload.Status.Conditions, kueue.WorkloadFinished)
 
-		if !isWl || len(wl.Status.AdmissionChecks) == 0 {
-			return nil
-		}
-
-		return []string{HasAdmission}
-	})
+	return admitted && !finished
 }
