@@ -34,13 +34,13 @@ import (
 const namespace = "alert-manager-kueue-admission-system"
 
 // serviceAccountName created for the project
-const serviceAccountName = "alert-manager-kueue-admission-controller-manager"
+const serviceAccountName = "alert-mgr-kueue-admission-controller-manager"
 
 // metricsServiceName is the name of the metrics service of the project
-const metricsServiceName = "alert-manager-kueue-admission-controller-manager-metrics-service"
+const metricsServiceName = "alert-mgr-kueue-admission-controller-manager-metrics-service"
 
 // metricsRoleBindingName is the name of the RBAC that will be created to allow get the metrics data
-const metricsRoleBindingName = "alert-manager-kueue-admission-metrics-binding"
+const metricsRoleBindingName = "alert-mgr-kueue-admission-metrics-binding"
 
 var _ = Describe("Manager", Ordered, func() {
 	var controllerPodName string
@@ -49,9 +49,14 @@ var _ = Describe("Manager", Ordered, func() {
 	// enforce the restricted security policy to the namespace, installing CRDs,
 	// and deploying the controller.
 	BeforeAll(func() {
-		By("creating manager namespace")
-		cmd := exec.Command("kubectl", "create", "ns", namespace)
+		By("deploying kueue")
+		cmd := exec.Command("make", "kueue", fmt.Sprintf("IMG=%s", projectImage))
 		_, err := utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred(), "Failed to install kueue")
+
+		By("creating manager namespace")
+		cmd = exec.Command("kubectl", "create", "ns", namespace)
+		_, err = utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Failed to create namespace")
 
 		By("labeling the namespace to enforce the restricted security policy")
@@ -173,7 +178,7 @@ var _ = Describe("Manager", Ordered, func() {
 		It("should ensure the metrics endpoint is serving metrics", func() {
 			By("creating a ClusterRoleBinding for the service account to allow access to metrics")
 			cmd := exec.Command("kubectl", "create", "clusterrolebinding", metricsRoleBindingName,
-				"--clusterrole=alert-manager-kueue-admission-metrics-reader",
+				"--clusterrole=alert-mgr-kueue-admission-metrics-reader",
 				fmt.Sprintf("--serviceaccount=%s:%s", namespace, serviceAccountName),
 			)
 			_, err := utils.Run(cmd)

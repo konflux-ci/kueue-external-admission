@@ -5,7 +5,15 @@ metadata:
   name: manager-role
 rules:
 - apiGroups:
-  - kueue.x-k8s.io.konflux-ci.dev
+  - ""
+  resources:
+  - configmaps
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - kueue.x-k8s.io
   resources:
   - admissionchecks
   - workloads
@@ -18,14 +26,14 @@ rules:
   - update
   - watch
 - apiGroups:
-  - kueue.x-k8s.io.konflux-ci.dev
+  - kueue.x-k8s.io
   resources:
   - admissionchecks/finalizers
   - workloads/finalizers
   verbs:
   - update
 - apiGroups:
-  - kueue.x-k8s.io.konflux-ci.dev
+  - kueue.x-k8s.io
   resources:
   - admissionchecks/status
   - workloads/status
