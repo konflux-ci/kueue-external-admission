@@ -1,9 +1,10 @@
 # Build the manager binary
-FROM docker.io/golang:1.23 AS builder
+FROM registry.access.redhat.com/ubi9/go-toolset:9.5-1742197705 AS builder
 ARG TARGETOS
 ARG TARGETARCH
 
-WORKDIR /workspace
+ENV GOTOOLCHAIN=auto
+WORKDIR /opt/app-root/src
 # Copy the Go Modules manifests
 COPY go.mod go.mod
 COPY go.sum go.sum
@@ -23,11 +24,18 @@ COPY pkg/ pkg/
 # by leaving it empty we can ensure that the container and binary shipped on it will have the same platform.
 RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o manager cmd/main.go
 
-# Use distroless as minimal base image to package the manager binary
-# Refer to https://github.com/GoogleContainerTools/distroless for more details
-FROM gcr.io/distroless/static:nonroot
+
+FROM registry.access.redhat.com/ubi9-micro@sha256:8a6071b01366611fd9433bf9688f5c3150de819874fa2c06c4fcd4c25ea26f03
 WORKDIR /
-COPY --from=builder /workspace/manager .
+COPY --from=builder /opt/app-root/src/manager .
+COPY LICENSE /licenses/
 USER 65532:65532
+
+# It is mandatory to set these labels
+LABEL name="Kueue External Admission Controller"
+LABEL description="Kueue External Admission Controller"
+LABEL com.redhat.component="Kueue External Admission Controller"
+LABEL io.k8s.description="Kueue External Admission Controller"
+LABEL io.k8s.display-name="Kueue External Admission Controller"
 
 ENTRYPOINT ["/manager"]
