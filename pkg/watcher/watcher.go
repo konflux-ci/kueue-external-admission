@@ -30,7 +30,6 @@ type Watcher struct {
 	lister        Lister
 	admitter      Admitter
 	period        time.Duration
-	logger        logr.Logger
 }
 
 func NewWatcher(
@@ -51,13 +50,12 @@ func NewWatcher(
 func (w *Watcher) Start(ctx context.Context) error {
 	doneCh := ctx.Done()
 	ticker := time.NewTicker(w.period)
-	w.logger = ctrl.LoggerFrom(ctx)
 
 	go func() {
 		for {
 			select {
 			case <-doneCh:
-				w.logger.Info("Received done signal")
+				ctrl.LoggerFrom(ctx).Info("Received done signal")
 				return
 			case <-ticker.C:
 				err := w.Run(ctx)
@@ -74,7 +72,8 @@ func (w *Watcher) Start(ctx context.Context) error {
 
 func (w *Watcher) Run(ctx context.Context) error {
 	// todo: should we propagate a context to Query and notifiy?
-	w.logger.Info("Running Query")
+	l := ctrl.LoggerFrom(ctx)
+	l.Info("Running Query")
 	shouldAdmit, err := w.admitter.ShouldAdmit(ctx)
 	if err != nil {
 		// should we change the condition? how to avoid blocking the condition on false?
@@ -82,7 +81,7 @@ func (w *Watcher) Run(ctx context.Context) error {
 	}
 	if w.condition != shouldAdmit {
 		w.condition = shouldAdmit
-		w.logger.Info("Condition changed, sending notification")
+		l.Info("Condition changed, sending notification")
 		err = w.notify(ctx)
 		if err != nil {
 			return err
@@ -103,7 +102,7 @@ func (w *Watcher) notify(ctx context.Context) error {
 	}
 	for _, o := range objects {
 		if o == nil {
-			w.logger.Info("Got nil object")
+			ctrl.LoggerFrom(ctx).Info("Got nil object")
 		}
 		w.eventsChannel <- event.GenericEvent{Object: o}
 	}
