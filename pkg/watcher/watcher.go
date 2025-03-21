@@ -58,8 +58,7 @@ func (w *Watcher) Start(ctx context.Context) error {
 				ctrl.LoggerFrom(ctx).Info("Received done signal")
 				return
 			case <-ticker.C:
-				err := w.Run(ctx)
-				if err != nil {
+				if err := w.Run(ctx); err != nil {
 					// todo: add proper monitoring
 					panic(err)
 				}
@@ -71,24 +70,23 @@ func (w *Watcher) Start(ctx context.Context) error {
 }
 
 func (w *Watcher) Run(ctx context.Context) error {
-	// todo: should we propagate a context to Query and notifiy?
 	l := ctrl.LoggerFrom(ctx)
 	l.Info("Running Query")
+
 	shouldAdmit, err := w.admitter.ShouldAdmit(ctx)
 	if err != nil {
 		// should we change the condition? how to avoid blocking the condition on false?
 		return err
 	}
-	if w.condition != shouldAdmit {
-		w.condition = shouldAdmit
-		l.Info("Condition changed, sending notification")
-		err = w.notify(ctx)
-		if err != nil {
-			return err
-		}
+
+	// nothing to do
+	if w.condition == shouldAdmit {
+		return nil
 	}
 
-	return nil
+	w.condition = shouldAdmit
+	l.Info("Condition changed, sending notification")
+	return w.notify(ctx)
 }
 
 func (w *Watcher) ShouldAdmit(ctx context.Context) (bool, error) {
