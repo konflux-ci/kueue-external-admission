@@ -68,6 +68,7 @@ func main() {
 	var secureMetrics bool
 	var enableHTTP2 bool
 	var tlsOpts []func(*tls.Config)
+	var watcherSyncPeriod string
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
@@ -85,6 +86,8 @@ func main() {
 	flag.StringVar(&metricsCertKey, "metrics-cert-key", "tls.key", "The name of the metrics server key file.")
 	flag.BoolVar(&enableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
+	flag.StringVar(&watcherSyncPeriod, "watcher-sync-period", "15s",
+		"The amount of time the watcher will wait before checking for changes (Go time.Duration format).")
 	opts := zap.Options{
 		Development: true,
 	}
@@ -92,6 +95,13 @@ func main() {
 	flag.Parse()
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+
+	// parse watcher sync period
+	watcherSyncPeriodDuration, err := time.ParseDuration(watcherSyncPeriod)
+	if err != nil {
+		setupLog.Error(err, "could not parse provided watcher sync period as Duration")
+		os.Exit(1)
+	}
 
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
 	// due to its vulnerabilities. More specifically, disabling http/2 will
@@ -226,7 +236,7 @@ func main() {
 			},
 			ctrl.Log.WithName("config-admitter"),
 		),
-		time.Second*15,
+		watcherSyncPeriodDuration,
 	)
 	if err = mgr.Add(watcher); err != nil {
 		setupLog.Error(err, "Unable to add watcher to the manger")
