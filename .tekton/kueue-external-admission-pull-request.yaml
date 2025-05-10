@@ -594,7 +594,8 @@ spec:
       optional: true
     - name: netrc
       optional: true
-  taskRunTemplate: {}
+  taskRunTemplate:
+    serviceAccountName: build-pipeline-kueue-external-admission
   workspaces:
   - name: git-auth
     secret:
