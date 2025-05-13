@@ -231,7 +231,7 @@ func main() {
 		watcher.NewConfigAdmitter(
 			mgr.GetClient(),
 			types.NamespacedName{
-				Namespace: "alert-manager-kueue-admission-system",
+				Namespace: "kueue-external-admission",
 				Name:      "alert-mgr-kueue-admission-config",
 			},
 			ctrl.Log.WithName("config-admitter"),

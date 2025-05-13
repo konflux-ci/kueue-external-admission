@@ -31,7 +31,7 @@ import (
 )
 
 // namespace where the project is deployed in
-const namespace = "alert-manager-kueue-admission-system"
+const namespace = "kueue-external-admission"
 
 // serviceAccountName created for the project
 const serviceAccountName = "alert-mgr-kueue-admission-controller-manager"
