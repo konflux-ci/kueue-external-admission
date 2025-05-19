@@ -173,11 +173,11 @@ func (w *WorkloadLister) List(ctx context.Context) ([]client.Object, error) {
 	return slices.Clip(workloads), nil
 }
 
-// isWorkloadAdmittedAndNotFinished returns true if the workload has been admitted
+// isWorkloadAdmittedAndNotFinished returns true if the workload requires admission checks
 // and hasn't still finished.
 func (w *WorkloadLister) isWorkloadAdmittedAndNotFinished(workload *kueue.Workload) bool {
-	admitted := len(workload.Status.AdmissionChecks) == 0
+	requiresAdmissionCheck := len(workload.Status.AdmissionChecks) > 0
 	finished := meta.IsStatusConditionTrue(workload.Status.Conditions, kueue.WorkloadFinished)
 
-	return admitted && !finished
+	return requiresAdmissionCheck && !finished
 }
