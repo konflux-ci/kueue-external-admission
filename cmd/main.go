@@ -44,6 +44,8 @@ import (
 
 	// +kubebuilder:scaffold:imports
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+
+	"sigs.k8s.io/controller-runtime/pkg/client/config"
 )
 
 var (
@@ -58,46 +60,98 @@ func init() {
 	utilruntime.Must(kueue.AddToScheme(scheme))
 }
 
-// nolint:gocyclo
-func main() {
-	var metricsAddr string
-	var metricsCertPath, metricsCertName, metricsCertKey string
-	var webhookCertPath, webhookCertName, webhookCertKey string
-	var enableLeaderElection bool
-	var probeAddr string
-	var secureMetrics bool
-	var enableHTTP2 bool
-	var tlsOpts []func(*tls.Config)
-	var watcherSyncPeriod string
-	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
+// ControllerFlags contains all command line flags for the application
+type ControllerFlags struct {
+	MetricsAddr          string
+	MetricsCertPath      string
+	MetricsCertName      string
+	MetricsCertKey       string
+	WebhookCertPath      string
+	WebhookCertName      string
+	WebhookCertKey       string
+	EnableLeaderElection bool
+	ProbeAddr            string
+	SecureMetrics        bool
+	EnableHTTP2          bool
+	WatcherSyncPeriod    string
+	LeaseDuration        time.Duration
+	RenewDeadline        time.Duration
+	RetryPeriod          time.Duration
+	ZapOptions           *zap.Options
+}
+
+// AddFlags adds all CLI flags to the provided FlagSet
+func (c *ControllerFlags) AddFlags(fs *flag.FlagSet) {
+	fs.StringVar(&c.MetricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
-	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
-	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
+	fs.StringVar(&c.ProbeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
+	fs.BoolVar(&c.EnableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
-	flag.BoolVar(&secureMetrics, "metrics-secure", true,
-		"If set, the metrics endpoint is served securely via HTTPS. Use --metrics-secure=false to use HTTP instead.")
-	flag.StringVar(&webhookCertPath, "webhook-cert-path", "", "The directory that contains the webhook certificate.")
-	flag.StringVar(&webhookCertName, "webhook-cert-name", "tls.crt", "The name of the webhook certificate file.")
-	flag.StringVar(&webhookCertKey, "webhook-cert-key", "tls.key", "The name of the webhook key file.")
-	flag.StringVar(&metricsCertPath, "metrics-cert-path", "",
+	fs.BoolVar(&c.SecureMetrics, "metrics-secure", true,
+		"If set, the metrics endpoint is served securely via HTTPS. "+
+			"Use --metrics-secure=false to use HTTP instead.")
+	fs.StringVar(&c.WebhookCertPath, "webhook-cert-path", "",
+		"The directory that contains the webhook certificate.")
+	fs.StringVar(&c.WebhookCertName, "webhook-cert-name", "tls.crt",
+		"The name of the webhook certificate file.")
+	fs.StringVar(&c.WebhookCertKey, "webhook-cert-key", "tls.key",
+		"The name of the webhook key file.")
+	fs.StringVar(&c.MetricsCertPath, "metrics-cert-path", "",
 		"The directory that contains the metrics server certificate.")
-	flag.StringVar(&metricsCertName, "metrics-cert-name", "tls.crt", "The name of the metrics server certificate file.")
-	flag.StringVar(&metricsCertKey, "metrics-cert-key", "tls.key", "The name of the metrics server key file.")
-	flag.BoolVar(&enableHTTP2, "enable-http2", false,
+	fs.StringVar(&c.MetricsCertName, "metrics-cert-name", "tls.crt",
+		"The name of the metrics server certificate file.")
+	fs.StringVar(&c.MetricsCertKey, "metrics-cert-key", "tls.key",
+		"The name of the metrics server key file.")
+	fs.BoolVar(&c.EnableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
-	flag.StringVar(&watcherSyncPeriod, "watcher-sync-period", "15s",
-		"The amount of time the watcher will wait before checking for changes (Go time.Duration format).")
-	opts := zap.Options{
+	fs.StringVar(&c.WatcherSyncPeriod, "watcher-sync-period", "15s",
+		"The amount of time the watcher will wait before checking for changes "+
+			"(Go time.Duration format).")
+	fs.DurationVar(&c.LeaseDuration, "leader-elect-lease-duration", 15*time.Second,
+		"The duration that non-leader candidates will wait after observing a leadership "+
+			"renewal until attempting to acquire leadership of a led but unrenewed leader slot. "+
+			"This is effectively the maximum duration that a leader can be stopped before it "+
+			"is replaced by another candidate.")
+	fs.DurationVar(&c.RenewDeadline, "leader-elect-renew-deadline", 10*time.Second,
+		"The interval between attempts by the acting master to renew a leadership slot "+
+			"before it stops leading. This must be less than or equal to the lease duration.")
+	fs.DurationVar(&c.RetryPeriod, "leader-elect-retry-period", 2*time.Second,
+		"The duration the clients should wait between attempting acquisition and renewal "+
+			"of a leadership.")
+
+	c.ZapOptions = &zap.Options{
 		Development: true,
 	}
-	opts.BindFlags(flag.CommandLine)
-	flag.Parse()
+	c.ZapOptions.BindFlags(fs)
+	config.RegisterFlags(fs)
+}
 
-	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+// nolint:gocyclo
+func main() {
+	var tlsOpts []func(*tls.Config)
+
+	// Initialize CLI flags
+	cliFlags := &ControllerFlags{}
+	fs := flag.NewFlagSet("main", flag.ExitOnError)
+	cliFlags.AddFlags(fs)
+
+	if err := fs.Parse(os.Args[1:]); err != nil {
+		setupLog.Error(err, "failed to parse command line flags")
+		os.Exit(1)
+	}
+
+	ctrl.SetLogger(zap.New(zap.UseFlagOptions(cliFlags.ZapOptions)))
+
+	// log leader election configuration
+	setupLog.Info("Leader election configuration",
+		"lease-duration", cliFlags.LeaseDuration,
+		"renew-deadline", cliFlags.RenewDeadline,
+		"retry-period", cliFlags.RetryPeriod,
+		"leader-election-enabled", cliFlags.EnableLeaderElection)
 
 	// parse watcher sync period
-	watcherSyncPeriodDuration, err := time.ParseDuration(watcherSyncPeriod)
+	watcherSyncPeriodDuration, err := time.ParseDuration(cliFlags.WatcherSyncPeriod)
 	if err != nil {
 		setupLog.Error(err, "could not parse provided watcher sync period as Duration")
 		os.Exit(1)
@@ -114,7 +168,7 @@ func main() {
 		c.NextProtos = []string{"http/1.1"}
 	}
 
-	if !enableHTTP2 {
+	if !cliFlags.EnableHTTP2 {
 		tlsOpts = append(tlsOpts, disableHTTP2)
 	}
 
@@ -124,14 +178,16 @@ func main() {
 	// Initial webhook TLS options
 	webhookTLSOpts := tlsOpts
 
-	if len(webhookCertPath) > 0 {
+	if len(cliFlags.WebhookCertPath) > 0 {
 		setupLog.Info("Initializing webhook certificate watcher using provided certificates",
-			"webhook-cert-path", webhookCertPath, "webhook-cert-name", webhookCertName, "webhook-cert-key", webhookCertKey)
+			"webhook-cert-path", cliFlags.WebhookCertPath,
+			"webhook-cert-name", cliFlags.WebhookCertName,
+			"webhook-cert-key", cliFlags.WebhookCertKey)
 
 		var err error
 		webhookCertWatcher, err = certwatcher.New(
-			filepath.Join(webhookCertPath, webhookCertName),
-			filepath.Join(webhookCertPath, webhookCertKey),
+			filepath.Join(cliFlags.WebhookCertPath, cliFlags.WebhookCertName),
+			filepath.Join(cliFlags.WebhookCertPath, cliFlags.WebhookCertKey),
 		)
 		if err != nil {
 			setupLog.Error(err, "Failed to initialize webhook certificate watcher")
@@ -147,68 +203,88 @@ func main() {
 		TLSOpts: webhookTLSOpts,
 	})
 
-	// Metrics endpoint is enabled in 'config/default/kustomization.yaml'. The Metrics options configure the server.
-	// More info:
+	// Metrics endpoint is enabled in 'config/default/kustomization.yaml'.
+	// The Metrics options configure the server. More info:
 	// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.20.0/pkg/metrics/server
 	// - https://book.kubebuilder.io/reference/metrics.html
 	metricsServerOptions := metricsserver.Options{
-		BindAddress:   metricsAddr,
-		SecureServing: secureMetrics,
+		BindAddress:   cliFlags.MetricsAddr,
+		SecureServing: cliFlags.SecureMetrics,
 		TLSOpts:       tlsOpts,
 	}
 
-	if secureMetrics {
+	if cliFlags.SecureMetrics {
 		// FilterProvider is used to protect the metrics endpoint with authn/authz.
 		// These configurations ensure that only authorized users and service accounts
-		// can access the metrics endpoint. The RBAC are configured in 'config/rbac/kustomization.yaml'. More info:
-		// https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.20.0/pkg/metrics/filters#WithAuthenticationAndAuthorization
+		// can access the metrics endpoint. The RBAC are configured in
+		// 'config/rbac/kustomization.yaml'. More info:
+		// https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.20.0/pkg/metrics/
+		// filters#WithAuthenticationAndAuthorization
 		metricsServerOptions.FilterProvider = filters.WithAuthenticationAndAuthorization
 	}
 
 	// If the certificate is not specified, controller-runtime will automatically
-	// generate self-signed certificates for the metrics server. While convenient for development and testing,
-	// this setup is not recommended for production.
+	// generate self-signed certificates for the metrics server. While convenient for
+	// development and testing, this setup is not recommended for production.
 	//
 	// TODO(user): If you enable certManager, uncomment the following lines:
-	// - [METRICS-WITH-CERTS] at config/default/kustomization.yaml to generate and use certificates
-	// managed by cert-manager for the metrics server.
-	// - [PROMETHEUS-WITH-CERTS] at config/prometheus/kustomization.yaml for TLS certification.
-	if len(metricsCertPath) > 0 {
+	// - [METRICS-WITH-CERTS] at config/default/kustomization.yaml to generate and use
+	//   certificates managed by cert-manager for the metrics server.
+	// - [PROMETHEUS-WITH-CERTS] at config/prometheus/kustomization.yaml for TLS
+	//   certification.
+	if len(cliFlags.MetricsCertPath) > 0 {
 		setupLog.Info("Initializing metrics certificate watcher using provided certificates",
-			"metrics-cert-path", metricsCertPath, "metrics-cert-name", metricsCertName, "metrics-cert-key", metricsCertKey)
+			"metrics-cert-path", cliFlags.MetricsCertPath,
+			"metrics-cert-name", cliFlags.MetricsCertName,
+			"metrics-cert-key", cliFlags.MetricsCertKey)
 
 		var err error
 		metricsCertWatcher, err = certwatcher.New(
-			filepath.Join(metricsCertPath, metricsCertName),
-			filepath.Join(metricsCertPath, metricsCertKey),
+			filepath.Join(cliFlags.MetricsCertPath, cliFlags.MetricsCertName),
+			filepath.Join(cliFlags.MetricsCertPath, cliFlags.MetricsCertKey),
 		)
 		if err != nil {
 			setupLog.Error(err, "to initialize metrics certificate watcher", "error", err)
 			os.Exit(1)
 		}
 
-		metricsServerOptions.TLSOpts = append(metricsServerOptions.TLSOpts, func(config *tls.Config) {
-			config.GetCertificate = metricsCertWatcher.GetCertificate
-		})
+		metricsServerOptions.TLSOpts = append(metricsServerOptions.TLSOpts,
+			func(config *tls.Config) {
+				config.GetCertificate = metricsCertWatcher.GetCertificate
+			})
+	}
+	// Log leader election configuration
+	const leaderElectionId = "a7c8a3c7.konflux-ci.dev"
+	if cliFlags.EnableLeaderElection {
+		setupLog.Info("Leader election enabled with lease configuration",
+			"lease-duration", cliFlags.LeaseDuration,
+			"renew-deadline", cliFlags.RenewDeadline,
+			"retry-period", cliFlags.RetryPeriod,
+			"leader-election-id", leaderElectionId)
+	} else {
+		setupLog.Info("Leader election disabled")
 	}
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
 		Metrics:                metricsServerOptions,
 		WebhookServer:          webhookServer,
-		HealthProbeBindAddress: probeAddr,
-		LeaderElection:         enableLeaderElection,
-		LeaderElectionID:       "a7c8a3c7.konflux-ci.dev",
+		HealthProbeBindAddress: cliFlags.ProbeAddr,
+		LeaderElection:         cliFlags.EnableLeaderElection,
+		LeaderElectionID:       leaderElectionId,
+		LeaseDuration:          &cliFlags.LeaseDuration,
+		RenewDeadline:          &cliFlags.RenewDeadline,
+		RetryPeriod:            &cliFlags.RetryPeriod,
 		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
 		// when the Manager ends. This requires the binary to immediately end when the
-		// Manager is stopped, otherwise, this setting is unsafe. Setting this significantly
-		// speeds up voluntary leader transitions as the new leader don't have to wait
-		// LeaseDuration time first.
+		// Manager is stopped, otherwise, this setting is unsafe. Setting this
+		// significantly speeds up voluntary leader transitions as the new leader don't
+		// have to wait LeaseDuration time first.
 		//
 		// In the default scaffold provided, the program ends immediately after
 		// the manager stops, so would be fine to enable this option. However,
-		// if you are doing or is intended to do any operation such as perform cleanups
-		// after the manager stops then its usage might be unsafe.
+		// if you are doing or is intended to do any operation such as perform
+		// cleanups after the manager stops then its usage might be unsafe.
 		// LeaderElectionReleaseOnCancel: true,
 	})
 	if err != nil {
@@ -220,7 +296,8 @@ func main() {
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "AdmissionCheck")
+		setupLog.Error(err, "unable to create controller",
+			"controller", "AdmissionCheck")
 		os.Exit(1)
 	}
 
@@ -248,7 +325,8 @@ func main() {
 		mgr.GetScheme(),
 		watcher,
 	)).SetupWithManager(mgr, eventsCh); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "Workload")
+		setupLog.Error(err, "unable to create controller",
+			"controller", "Workload")
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder
