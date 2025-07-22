@@ -1,0 +1,23 @@
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: test-alerts
+  namespace: monitoring
+  labels:
+    team: kueue
+    role: alert-rules
+spec:
+  groups:
+  - name: test.rules
+    rules:
+    - alert: TestAlertAlwaysFiring
+      expr: vector(1)
+      for: 0s
+      labels:
+        severity: warning
+        test: always-firing
+      annotations:
+        summary: "Test alert that always fires"
+        description: "This is a test alert that should always be firing to verify AlertManager is working correctly."
+        runbook_url: "https://example.com/test-alert" 

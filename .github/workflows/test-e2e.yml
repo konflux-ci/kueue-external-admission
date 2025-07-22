@@ -36,5 +36,7 @@ jobs:
           go mod tidy
           make load-image "IMG=$IMG"
           podman exec kind-control-plane crictl images
+          make cert-manager
+          make prometheus
           make kueue
           make test-e2e

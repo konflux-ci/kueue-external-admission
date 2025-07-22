@@ -181,6 +181,8 @@ ENVTEST_K8S_VERSION ?= $(shell go list -m -f "{{ .Version }}" k8s.io/api | awk -
 GOLANGCI_LINT_VERSION ?= v2.1.6
 KUEUE_VERSION ?= $(shell ./hack/get-kueue-version.sh)
 KIND_CLUSTER ?= kind
+CERT_MANAGER_VERSION ?= v1.16.3
+PROMETHEUS_VERSION ?= v0.77.1
 
 .PHONY: kustomize
 kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary.
@@ -246,3 +248,15 @@ load-image: docker-build
 	$(CONTAINER_TOOL) save $(IMG) -o $${dir}/kueue-external-admission.tar && \
 	kind load image-archive -n $(KIND_CLUSTER) $${dir}/kueue-external-admission.tar && \
 	rm -r $${dir}
+
+.PHONY: prometheus
+prometheus:
+	$(KUBECTL) apply --server-side -k deploy/prometheous/operator
+	$(KUBECTL) wait --for=condition=Available deployment --all -n monitoring --timeout=300s
+	$(KUBECTL) apply -k deploy/prometheous/deployments
+	$(KUBECTL) wait --for=condition=Ready -l app.kubernetes.io/managed-by=prometheus-operator -n monitoring --timeout=300s pod
+
+.PHONY: prometheus-undeploy
+prometheus-undeploy:
+	$(KUBECTL) delete -k deploy/prometheous/deployments
+	$(KUBECTL) delete -k deploy/prometheous/operator
