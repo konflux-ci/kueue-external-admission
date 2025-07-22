@@ -17,6 +17,7 @@ limitations under the License.
 package e2e
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -26,6 +27,19 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	kerrors "k8s.io/apimachinery/pkg/api/errors"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 
 	"github.com/konflux-ci/kueue-external-admission/test/utils"
 )
@@ -44,19 +58,16 @@ const metricsRoleBindingName = "alert-mgr-kueue-admission-metrics-binding"
 
 var _ = Describe("Manager", Ordered, func() {
 	var controllerPodName string
+	var k8sClient client.Client
+	nsName := "test-ns"
 
 	// Before running the tests, set up the environment by creating the namespace,
 	// enforce the restricted security policy to the namespace, installing CRDs,
 	// and deploying the controller.
-	BeforeAll(func() {
-		By("deploying kueue")
-		cmd := exec.Command("make", "kueue", fmt.Sprintf("IMG=%s", projectImage))
-		_, err := utils.Run(cmd)
-		Expect(err).NotTo(HaveOccurred(), "Failed to install kueue")
-
+	BeforeAll(func(ctx context.Context) {
 		By("creating manager namespace")
-		cmd = exec.Command("kubectl", "create", "ns", namespace)
-		_, err = utils.Run(cmd)
+		cmd := exec.Command("kubectl", "create", "ns", namespace)
+		_, err := utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Failed to create namespace")
 
 		By("labeling the namespace to enforce the restricted security policy")
@@ -71,9 +82,27 @@ var _ = Describe("Manager", Ordered, func() {
 		Expect(err).NotTo(HaveOccurred(), "Failed to install CRDs")
 
 		By("deploying the controller-manager")
+		projectImage := os.Getenv("IMG")
+		Expect(projectImage).ToNot(Equal(""), "IMG environment variable must be declared")
 		cmd = exec.Command("make", "deploy", fmt.Sprintf("IMG=%s", projectImage))
 		_, err = utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Failed to deploy the controller-manager")
+
+		By("Creating a k8s client")
+		// The context provided by the callback is closed when it's completed,
+		// so we need to create another context for the client.
+		k8sClient = getK8sClientOrDie(context.Background())
+
+		By(fmt.Sprintf("Creating a namespace: %s", nsName), func() {
+			ns := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: nsName,
+				},
+			}
+			Expect(k8sClient.Create(ctx, ns)).To(Satisfy(func(err error) bool {
+				return err == nil || kerrors.IsAlreadyExists(err)
+			}))
+		})
 	})
 
 	// After all tests have been executed, clean up by undeploying the controller, uninstalling CRDs,
@@ -278,6 +307,41 @@ var _ = Describe("Manager", Ordered, func() {
 		// ))
 	})
 })
+
+func getK8sClientOrDie(ctx context.Context) client.Client {
+	scheme := runtime.NewScheme()
+	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+	utilruntime.Must(kueue.AddToScheme(scheme))
+
+	cfg := ctrl.GetConfigOrDie()
+
+	k8sCache, err := cache.New(cfg, cache.Options{Scheme: scheme, ReaderFailOnMissingInformer: true})
+	Expect(err).ToNot(HaveOccurred(), "failed to create cache")
+
+	_, err = k8sCache.GetInformer(ctx, &kueue.Workload{})
+	Expect(err).ToNot(HaveOccurred(), "failed to setup informer for workloads")
+
+	go func() {
+		if err := k8sCache.Start(ctx); err != nil {
+			panic(err)
+		}
+	}()
+
+	if synced := k8sCache.WaitForCacheSync(ctx); !synced {
+		panic("failed waiting for cache to sync")
+	}
+
+	k8sClient, err := client.New(
+		cfg,
+		client.Options{
+			Cache:  &client.CacheOptions{Reader: k8sCache},
+			Scheme: scheme,
+		},
+	)
+	Expect(err).ToNot(HaveOccurred(), "failed to create client")
+
+	return k8sClient
+}
 
 // serviceAccountToken returns a token for the specified service account in the given namespace.
 // It uses the Kubernetes TokenRequest API to generate a token by directly sending a request
