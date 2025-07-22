@@ -30,8 +30,11 @@ jobs:
         run: kind create cluster
         env:
           KIND_EXPERIMENTAL_PROVIDER: podman
-          IMG: konflux-ci.dev/kueue-external-admission:v0.0.1
+
       - name: Running Test e2e
+        env:
+          KIND_EXPERIMENTAL_PROVIDER: podman
+          IMG: konflux-ci.dev/kueue-external-admission:v0.0.1
         run: |
           go mod tidy
           make load-image "IMG=$IMG"
