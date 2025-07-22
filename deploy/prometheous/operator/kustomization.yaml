@@ -1,0 +1,5 @@
+kind: Kustomization
+resources:
+  - https://github.com/prometheus-operator/prometheus-operator/releases/download/v0.77.1/bundle.yaml
+  - namespace.yaml
+namespace: monitoring

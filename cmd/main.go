@@ -45,6 +45,7 @@ import (
 	// +kubebuilder:scaffold:imports
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 
+	"k8s.io/utils/clock"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 )
 
@@ -324,6 +325,7 @@ func main() {
 		mgr.GetClient(),
 		mgr.GetScheme(),
 		watcher,
+		clock.RealClock{},
 	)).SetupWithManager(mgr, eventsCh); err != nil {
 		setupLog.Error(err, "unable to create controller",
 			"controller", "Workload")

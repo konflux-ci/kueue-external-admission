@@ -12,7 +12,7 @@ endif
 # Be aware that the target commands are only tested with Docker which is
 # scaffolded by default. However, you might want to replace it to use other
 # tools. (i.e. podman)
-CONTAINER_TOOL ?= docker
+CONTAINER_TOOL ?= podman
 
 # Setting SHELL to bash allows bash commands to be executed by recipes.
 # Options are set to exit when a recipe line exits non-zero or a piped command fails.
@@ -178,8 +178,11 @@ CONTROLLER_TOOLS_VERSION ?= v0.17.1
 ENVTEST_VERSION ?= $(shell go list -m -f "{{ .Version }}" sigs.k8s.io/controller-runtime | awk -F'[v.]' '{printf "release-%d.%d", $$2, $$3}')
 #ENVTEST_K8S_VERSION is the version of Kubernetes to use for setting up ENVTEST binaries (i.e. 1.31)
 ENVTEST_K8S_VERSION ?= $(shell go list -m -f "{{ .Version }}" k8s.io/api | awk -F'[v.]' '{printf "1.%d", $$3}')
-GOLANGCI_LINT_VERSION ?= v1.63.4
-KUEUE_VERSION ?= v0.10.2
+GOLANGCI_LINT_VERSION ?= v2.1.6
+KUEUE_VERSION ?= $(shell ./hack/get-kueue-version.sh)
+KIND_CLUSTER ?= kind
+CERT_MANAGER_VERSION ?= v1.16.3
+PROMETHEUS_VERSION ?= v0.77.1
 
 .PHONY: kustomize
 kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary.
@@ -207,7 +210,7 @@ $(ENVTEST): $(LOCALBIN)
 .PHONY: golangci-lint
 golangci-lint: $(GOLANGCI_LINT) ## Download golangci-lint locally if necessary.
 $(GOLANGCI_LINT): $(LOCALBIN)
-	$(call go-install-tool,$(GOLANGCI_LINT),github.com/golangci/golangci-lint/cmd/golangci-lint,$(GOLANGCI_LINT_VERSION))
+	$(call go-install-tool,$(GOLANGCI_LINT),github.com/golangci/golangci-lint/v2/cmd/golangci-lint,$(GOLANGCI_LINT_VERSION))
 
 # go-install-tool will 'go install' any package with custom target and name of binary, if it doesn't exist
 # $1 - target path with name of binary
@@ -229,3 +232,32 @@ endef
 kueue:
 	kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/$(KUEUE_VERSION)/manifests.yaml
 	kubectl rollout status deployment/kueue-controller-manager -n kueue-system --timeout 300s
+
+.PHONY: cert-manager
+cert-manager:
+	$(KUBECTL) apply --server-side -f https://github.com/cert-manager/cert-manager/releases/download/$(CERT_MANAGER_VERSION)/cert-manager.yaml
+	$(KUBECTL) wait --for=condition=Available deployment --all -n cert-manager --timeout=300s
+
+.PHONY: cert-manager-undeploy
+cert-manager-undeploy:
+	$(KUBECTL) delete -f https://github.com/cert-manager/cert-manager/releases/download/$(CERT_MANAGER_VERSION)/cert-manager.yaml
+
+.PHONY: load-image
+load-image: docker-build
+	dir=$$(mktemp -d) && \
+	$(CONTAINER_TOOL) save $(IMG) -o $${dir}/kueue-external-admission.tar && \
+	kind load image-archive -n $(KIND_CLUSTER) $${dir}/kueue-external-admission.tar && \
+	rm -r $${dir}
+
+.PHONY: prometheus
+prometheus:
+	$(KUBECTL) apply --server-side -k deploy/prometheous/operator
+	$(KUBECTL) wait --for=condition=Available deployment --all -n monitoring --timeout=300s
+	$(KUBECTL) apply -k deploy/prometheous/deployments
+	sleep 10
+	$(KUBECTL) wait --for=condition=Ready -l app.kubernetes.io/managed-by=prometheus-operator -n monitoring --timeout=300s pod
+
+.PHONY: prometheus-undeploy
+prometheus-undeploy:
+	$(KUBECTL) delete -k deploy/prometheous/deployments
+	$(KUBECTL) delete -k deploy/prometheous/operator

@@ -1,7 +1,6 @@
 name: E2E Tests
 
-on:
-  push:
+on:gii
   pull_request:
 
 jobs:
@@ -28,8 +27,18 @@ jobs:
 
       - name: Create kind cluster
         run: kind create cluster
+        env:
+          KIND_EXPERIMENTAL_PROVIDER: podman
 
       - name: Running Test e2e
+        env:
+          KIND_EXPERIMENTAL_PROVIDER: podman
+          IMG: konflux-ci.dev/kueue-external-admission:v0.0.1
         run: |
           go mod tidy
+          make load-image "IMG=$IMG"
+          podman exec kind-control-plane crictl images
+          make cert-manager
+          make prometheus
+          make kueue
           make test-e2e

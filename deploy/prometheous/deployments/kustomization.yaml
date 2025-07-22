@@ -1,0 +1,7 @@
+kind: Kustomization
+resources:
+  - deployment.yaml
+  - alertmanager-config.yaml
+  - test-alert.yaml
+  - rbac.yaml
+namespace: monitoring

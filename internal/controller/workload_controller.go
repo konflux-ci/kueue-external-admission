@@ -23,6 +23,7 @@ import (
 	"github.com/konflux-ci/kueue-external-admission/pkg/watcher"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -40,13 +41,15 @@ type WorkloadReconciler struct {
 	client   client.Client
 	Scheme   *runtime.Scheme
 	admitter watcher.Admitter
+	clock    clock.Clock
 }
 
-func NewWorkloadController(client client.Client, schema *runtime.Scheme, admitter watcher.Admitter) *WorkloadReconciler {
+func NewWorkloadController(client client.Client, schema *runtime.Scheme, admitter watcher.Admitter, clock clock.Clock) *WorkloadReconciler {
 	return &WorkloadReconciler{
 		client,
 		schema,
 		admitter,
+		clock,
 	}
 }
 
@@ -110,7 +113,7 @@ func (w *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			Message: message,
 		}
 
-		workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, newCheck)
+		workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, newCheck, w.clock)
 	}
 
 	// make the update only if the workload was changed?
