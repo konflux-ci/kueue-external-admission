@@ -116,7 +116,12 @@ func (m *AlertMonitor) checkAndEmitEvents(ctx context.Context, previousStates ma
 		workloadKey := client.ObjectKeyFromObject(workload).String()
 
 		// Get admission checks for this workload (using the controller name constant)
-		relevantChecks, err := admissioncheck.FilterForController(ctx, nil, workload.Status.AdmissionChecks, "konflux-ci.dev/kueue-external-admission")
+		relevantChecks, err := admissioncheck.FilterForController(
+			ctx,
+			nil,
+			workload.Status.AdmissionChecks,
+			"konflux-ci.dev/kueue-external-admission",
+		)
 		if err != nil {
 			m.logger.Error(err, "Failed to filter admission checks", "workload", workload.Name)
 			continue

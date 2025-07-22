@@ -126,7 +126,11 @@ func (a *AlertManagerAdmitter) getActiveAlerts(ctx context.Context) ([]AlertMana
 	if err != nil {
 		return nil, fmt.Errorf("failed to query AlertManager: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			a.logger.Error(closeErr, "Failed to close response body")
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)

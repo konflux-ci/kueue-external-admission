@@ -134,11 +134,10 @@ func (r *AdmissionCheckReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 
 	// Parse AlertManager configuration from parameters
-	config, err := r.parseAlertManagerConfig(ac)
-	if err != nil {
-		log.Error(err, "failed to parse AlertManager configuration")
-		r.updateAdmissionCheckStatus(ctx, ac, false, err.Error())
-		return ctrl.Result{RequeueAfter: time.Minute}, err
+	config := r.parseAlertManagerConfig(ac)
+	if config == nil {
+		log.Error(nil, "failed to parse AlertManager configuration")
+		return r.updateAdmissionCheckStatus(ctx, ac, false, "failed to parse AlertManager configuration")
 	}
 
 	// Create or update AlertManager admitter
@@ -157,7 +156,7 @@ func (r *AdmissionCheckReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 }
 
 // parseAlertManagerConfig parses the AlertManager configuration from AdmissionCheck parameters
-func (r *AdmissionCheckReconciler) parseAlertManagerConfig(ac *kueue.AdmissionCheck) (*AlertManagerAdmissionCheckConfig, error) {
+func (r *AdmissionCheckReconciler) parseAlertManagerConfig(_ *kueue.AdmissionCheck) *AlertManagerAdmissionCheckConfig {
 	// For now, use a simple hardcoded configuration until we implement proper parameter parsing
 	// TODO: Implement proper parameter parsing based on Kueue's parameter structure
 	// This would involve reading from ac.Spec.Parameters and parsing the configuration
@@ -183,7 +182,7 @@ func (r *AdmissionCheckReconciler) parseAlertManagerConfig(ac *kueue.AdmissionCh
 		},
 	}
 
-	return config, nil
+	return config
 }
 
 // updateAdmissionCheckStatus updates the status of an AdmissionCheck
@@ -206,7 +205,10 @@ func (r *AdmissionCheckReconciler) updateAdmissionCheckStatus(ctx context.Contex
 
 	if currentCondition.Status != newCondition.Status {
 		apimeta.SetStatusCondition(&ac.Status.Conditions, newCondition)
-		return reconcile.Result{}, r.Status().Update(ctx, ac)
+		err := r.Status().Update(ctx, ac)
+		if err != nil {
+			return ctrl.Result{RequeueAfter: time.Minute}, err
+		}
 	}
 
 	return ctrl.Result{}, nil
