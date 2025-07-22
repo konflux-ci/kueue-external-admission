@@ -18,7 +18,9 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/konflux-ci/kueue-external-admission/pkg/watcher"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -26,9 +28,11 @@ import (
 	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -38,17 +42,17 @@ import (
 
 // WorkloadReconciler reconciles a Workload object
 type WorkloadReconciler struct {
-	client   client.Client
-	Scheme   *runtime.Scheme
-	admitter watcher.Admitter
-	clock    clock.Clock
+	client           client.Client
+	Scheme           *runtime.Scheme
+	admissionService *watcher.AdmissionService // Shared service for admission checking
+	clock            clock.Clock
 }
 
-func NewWorkloadController(client client.Client, schema *runtime.Scheme, admitter watcher.Admitter, clock clock.Clock) *WorkloadReconciler {
+func NewWorkloadController(client client.Client, schema *runtime.Scheme, admissionService *watcher.AdmissionService, clock clock.Clock) *WorkloadReconciler {
 	return &WorkloadReconciler{
 		client,
 		schema,
-		admitter,
+		admissionService,
 		clock,
 	}
 }
@@ -81,30 +85,67 @@ func (w *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return reconcile.Result{}, nil
 	}
 
-	// Get the checks which are relevant to our controller. AC parameters are not supported
+	// wl.Status.AdmissionChecks contains only the admission checks configured
+	// for the ClusterQueue that this workload belongs to. This is populated by Kueue
+	// based on the ClusterQueue's admissionChecks configuration.
+	log.Info("Processing admission checks for workload",
+		"workload", wl.Name,
+		"totalAdmissionChecks", len(wl.Status.AdmissionChecks))
+
+	// Filter to get only the admission checks managed by our controller
+	// from the ones configured for this workload's ClusterQueue
 	relevantChecks, err := admissioncheck.FilterForController(ctx, w.client, wl.Status.AdmissionChecks, ControllerName)
 	if err != nil {
 		return reconcile.Result{}, err
 	}
 
 	if len(relevantChecks) == 0 {
-		log.Info("Didn't find relevant checks")
+		log.Info("No admission checks managed by our controller found for this workload",
+			"workload", wl.Name,
+			"controller", ControllerName)
 		return reconcile.Result{}, nil
 	}
 
-	// todo: move into a function
-	shouldAdmit, err := w.admitter.ShouldAdmit(ctx)
-	if err != nil {
-		return ctrl.Result{}, err
+	log.Info("Found admission checks managed by our controller",
+		"workload", wl.Name,
+		"controller", ControllerName,
+		"relevantChecks", relevantChecks)
+
+	// Use only the admission checks configured for this workload's ClusterQueue
+	// that are managed by our controller
+	admissionCheckNames := relevantChecks
+
+	// Check admission using the shared service - this will only check the
+	// AlertManager admitters for the specific admission checks configured
+	// for this workload's ClusterQueue
+	admissionResult := w.admissionService.ShouldAdmitWorkload(ctx, admissionCheckNames)
+
+	// Log any errors but continue processing
+	for checkName, err := range admissionResult.GetErrors() {
+		log.Error(err, "Error checking admission for AdmissionCheck", "admissionCheck", checkName, "workload", wl.Name)
 	}
+
 	wlPatch := workload.BaseSSAWorkload(wl)
 	for _, check := range relevantChecks {
 		state := kueue.CheckStatePending
 		message := "denying workload"
 
-		if shouldAdmit {
+		if admissionResult.ShouldAdmit() {
 			state = kueue.CheckStateReady
 			message = "approving workload"
+		} else {
+			// Include firing alerts in the denial message
+			firingAlerts := admissionResult.GetFiringAlerts()
+			if alerts, exists := firingAlerts[check]; exists && len(alerts) > 0 {
+				if len(alerts) == 1 {
+					message = fmt.Sprintf("denying workload due to firing alert: %s", alerts[0])
+				} else {
+					message = fmt.Sprintf("denying workload due to firing alerts: %s", strings.Join(alerts, ", "))
+				}
+			} else if err, hasError := admissionResult.GetErrors()[check]; hasError {
+				message = fmt.Sprintf("denying workload due to error: %s", err.Error())
+			}
+			// else keep the default "denying workload" message
 		}
 
 		newCheck := kueue.AdmissionCheckState{
@@ -128,15 +169,14 @@ func (w *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 // SetupWithManager sets up the controller with the Manager.
 func (w *WorkloadReconciler) SetupWithManager(mgr ctrl.Manager, eventsChan <-chan event.GenericEvent) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		// todo: reconcile workloads when a new admission check is added to the cluster
-		For(&kueue.Workload{}).
-		Named("workload").
+		For(&kueue.Workload{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		WatchesRawSource(
 			source.Channel(
 				eventsChan,
 				&handler.EnqueueRequestForObject{},
 			),
 		).
+		Named("workload").
 		Complete(w)
 }
 

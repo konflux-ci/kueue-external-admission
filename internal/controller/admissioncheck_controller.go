@@ -1,5 +1,5 @@
 /*
-Copyright 2025.
+Copyright 2024.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"time"
 
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -28,75 +29,205 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+
+	"github.com/konflux-ci/kueue-external-admission/pkg/watcher"
 )
 
 const (
 	ControllerName = "konflux-ci.dev/kueue-external-admission"
 )
 
+// AlertManagerAdmissionCheckConfig represents the configuration from AdmissionCheck parameters
+type AlertManagerAdmissionCheckConfig struct {
+	AlertManager AlertManagerConfig `yaml:"alertManager"`
+	AlertFilters AlertFiltersConfig `yaml:"alertFilters"`
+	Polling      PollingConfig      `yaml:"polling"`
+}
+
+type AlertManagerConfig struct {
+	URL       string           `yaml:"url"`
+	Timeout   time.Duration    `yaml:"timeout,omitempty"`
+	TLS       *TLSConfig       `yaml:"tls,omitempty"`
+	BasicAuth *BasicAuthConfig `yaml:"basicAuth,omitempty"`
+}
+
+type TLSConfig struct {
+	InsecureSkipVerify bool   `yaml:"insecureSkipVerify,omitempty"`
+	CAFile             string `yaml:"caFile,omitempty"`
+	CertFile           string `yaml:"certFile,omitempty"`
+	KeyFile            string `yaml:"keyFile,omitempty"`
+}
+
+type BasicAuthConfig struct {
+	Username       string          `yaml:"username"`
+	PasswordSecret SecretReference `yaml:"passwordSecret"`
+}
+
+type SecretReference struct {
+	Name string `yaml:"name"`
+	Key  string `yaml:"key"`
+}
+
+type AlertFiltersConfig struct {
+	AlertNames     []string        `yaml:"alertNames,omitempty"`
+	LabelSelectors []LabelSelector `yaml:"labelSelectors,omitempty"`
+}
+
+type LabelSelector struct {
+	MatchLabels      map[string]string `yaml:"matchLabels,omitempty"`
+	MatchExpressions []MatchExpression `yaml:"matchExpressions,omitempty"`
+}
+
+type MatchExpression struct {
+	Key      string   `yaml:"key"`
+	Operator string   `yaml:"operator"`
+	Values   []string `yaml:"values"`
+}
+
+type PollingConfig struct {
+	Interval         time.Duration `yaml:"interval,omitempty"`
+	FailureThreshold int           `yaml:"failureThreshold,omitempty"`
+}
+
+// NewAdmissionCheckReconciler creates a new AdmissionCheckReconciler
+func NewAdmissionCheckReconciler(client client.Client, scheme *runtime.Scheme, admissionService *watcher.AdmissionService) *AdmissionCheckReconciler {
+	return &AdmissionCheckReconciler{
+		Client:           client,
+		Scheme:           scheme,
+		admissionService: admissionService,
+	}
+}
+
 // AdmissionCheckReconciler reconciles a AdmissionCheck object
 type AdmissionCheckReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme           *runtime.Scheme
+	admissionService *watcher.AdmissionService // Shared service for managing admitters
 }
 
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=admissionchecks,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=admissionchecks/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=admissionchecks/finalizers,verbs=update
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 
-// Reconcile is part of the main kubernetes reconciliation loop which aims to
+// Reconcile is part of the main reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
-// TODO(user): Modify the Reconcile function to compare the state specified by
-// the AdmissionCheck object against the actual cluster state, and then
-// perform operations to make the cluster state reflect the state specified by
-// the user.
-//
-// For more details, check Reconcile and its Result here:
-// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.20.0/pkg/reconcile
-func (a *AdmissionCheckReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *AdmissionCheckReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
 	log.Info("Reconciling", "object", req.NamespacedName)
 
+	// Fetch the AdmissionCheck instance
 	ac := &kueue.AdmissionCheck{}
-	if err := a.Get(ctx, req.NamespacedName, ac); err != nil {
+	if err := r.Get(ctx, req.NamespacedName, ac); err != nil {
+		if client.IgnoreNotFound(err) == nil {
+			// AdmissionCheck was deleted, clean up admitter
+			r.admissionService.RemoveAdmitter(req.Name)
+		}
 		return reconcile.Result{}, client.IgnoreNotFound(err)
+	}
+
+	// Only handle our controller
+	if ac.Spec.ControllerName != ControllerName {
+		return ctrl.Result{}, nil
+	}
+
+	// Parse AlertManager configuration from parameters
+	config, err := r.parseAlertManagerConfig(ac)
+	if err != nil {
+		log.Error(err, "failed to parse AlertManager configuration")
+		r.updateAdmissionCheckStatus(ctx, ac, false, err.Error())
+		return ctrl.Result{RequeueAfter: time.Minute}, err
+	}
+
+	// Create or update AlertManager admitter
+	admitter := watcher.NewAlertManagerAdmitter(
+		config.AlertManager.URL,
+		config.AlertFilters.AlertNames,
+		log.WithValues("admissionCheck", req.Name),
+	)
+
+	// Register the admitter with the shared service (using interface)
+	r.admissionService.SetAdmitter(req.Name, admitter)
+	log.Info("Created/updated AlertManager admitter for AdmissionCheck", "admissionCheck", req.Name)
+
+	// Update AdmissionCheck status to Active
+	return r.updateAdmissionCheckStatus(ctx, ac, true, "AlertManager admission check is active")
+}
+
+// parseAlertManagerConfig parses the AlertManager configuration from AdmissionCheck parameters
+func (r *AdmissionCheckReconciler) parseAlertManagerConfig(ac *kueue.AdmissionCheck) (*AlertManagerAdmissionCheckConfig, error) {
+	// For now, use a simple hardcoded configuration until we implement proper parameter parsing
+	// TODO: Implement proper parameter parsing based on Kueue's parameter structure
+	// This would involve reading from ac.Spec.Parameters and parsing the configuration
+
+	// Create a default configuration for demonstration
+	config := &AlertManagerAdmissionCheckConfig{
+		AlertManager: AlertManagerConfig{
+			URL:     "http://alertmanager.monitoring.svc.cluster.local:9093",
+			Timeout: 10 * time.Second,
+		},
+		AlertFilters: AlertFiltersConfig{
+			AlertNames: []string{
+				"HighCPUUsage",
+				"HighMemoryUsage",
+				"NodeNotReady",
+				"KubernetesPodCrashLooping",
+				"DiskSpaceRunningLow",
+			},
+		},
+		Polling: PollingConfig{
+			Interval:         30 * time.Second,
+			FailureThreshold: 3,
+		},
+	}
+
+	return config, nil
+}
+
+// updateAdmissionCheckStatus updates the status of an AdmissionCheck
+func (r *AdmissionCheckReconciler) updateAdmissionCheckStatus(ctx context.Context, ac *kueue.AdmissionCheck, active bool, message string) (ctrl.Result, error) {
+	status := metav1.ConditionTrue
+	reason := "Active"
+	if !active {
+		status = metav1.ConditionFalse
+		reason = "Inactive"
 	}
 
 	currentCondition := ptr.Deref(apimeta.FindStatusCondition(ac.Status.Conditions, kueue.AdmissionCheckActive), metav1.Condition{})
 	newCondition := metav1.Condition{
 		Type:               kueue.AdmissionCheckActive,
-		Status:             metav1.ConditionTrue,
-		Reason:             "Active",
-		Message:            "The admission check is active",
+		Status:             status,
+		Reason:             reason,
+		Message:            message,
 		ObservedGeneration: ac.Generation,
 	}
 
 	if currentCondition.Status != newCondition.Status {
-		log.Info("Updating the status condition for", "object", ac.Name)
 		apimeta.SetStatusCondition(&ac.Status.Conditions, newCondition)
-		return reconcile.Result{}, a.Status().Update(ctx, ac)
+		return reconcile.Result{}, r.Status().Update(ctx, ac)
 	}
 
 	return ctrl.Result{}, nil
 }
 
+// ControllerNamePredicate returns a predicate that filters for admission checks
+// with the correct controller name
 func ControllerNamePredicate() predicate.Predicate {
-	return predicate.NewPredicateFuncs(func(object client.Object) bool {
-		ac, ok := object.(*kueue.AdmissionCheck)
+	return predicate.NewPredicateFuncs(func(obj client.Object) bool {
+		ac, ok := obj.(*kueue.AdmissionCheck)
 		if !ok {
 			return false
 		}
-
 		return ac.Spec.ControllerName == ControllerName
 	})
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (a *AdmissionCheckReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *AdmissionCheckReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		// Uncomment the following line adding a pointer to an instance of the controlled resource as an argument
 		For(&kueue.AdmissionCheck{}, builder.WithPredicates(ControllerNamePredicate())).
 		Named("admissioncheck").
-		Complete(a)
+		Complete(r)
 }

@@ -28,7 +28,6 @@ import (
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -151,12 +150,7 @@ func main() {
 		"retry-period", cliFlags.RetryPeriod,
 		"leader-election-enabled", cliFlags.EnableLeaderElection)
 
-	// parse watcher sync period
-	watcherSyncPeriodDuration, err := time.ParseDuration(cliFlags.WatcherSyncPeriod)
-	if err != nil {
-		setupLog.Error(err, "could not parse provided watcher sync period as Duration")
-		os.Exit(1)
-	}
+	// Note: watcher sync period not needed with new AlertManager approach
 
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
 	// due to its vulnerabilities. More specifically, disabling http/2 will
@@ -293,40 +287,43 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err = (&controller.AdmissionCheckReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-	}).SetupWithManager(mgr); err != nil {
+	// Create shared admission service with event channel
+	admissionService, eventsCh := watcher.NewAdmissionService(setupLog.WithName("admission-service"))
+
+	// Set up the AdmissionCheckReconciler
+	admissionCheckController := controller.NewAdmissionCheckReconciler(
+		mgr.GetClient(),
+		mgr.GetScheme(),
+		admissionService,
+	)
+	if err = admissionCheckController.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller",
 			"controller", "AdmissionCheck")
 		os.Exit(1)
 	}
 
-	ctx := ctrl.SetupSignalHandler()
-
-	watcher, eventsCh := watcher.NewWatcher(
+	// Create alert monitor to watch for alert state changes
+	alertMonitor := watcher.NewAlertMonitor(
+		admissionService,
 		controller.NewWorkloadLister(mgr.GetClient()),
-		watcher.NewConfigAdmitter(
-			mgr.GetClient(),
-			types.NamespacedName{
-				Namespace: "kueue-external-admission",
-				Name:      "alert-mgr-kueue-admission-config",
-			},
-			ctrl.Log.WithName("config-admitter"),
-		),
-		watcherSyncPeriodDuration,
+		30*time.Second, // Check every 30 seconds
+		setupLog.WithName("alert-monitor"),
 	)
-	if err = mgr.Add(watcher); err != nil {
-		setupLog.Error(err, "Unable to add watcher to the manger")
+
+	// Add alert monitor to manager so it starts/stops with the manager
+	if err = mgr.Add(alertMonitor); err != nil {
+		setupLog.Error(err, "unable to add alert monitor to manager")
 		os.Exit(1)
 	}
 
-	if err = (controller.NewWorkloadController(
+	// Set up the WorkloadReconciler with event channel
+	workloadController := controller.NewWorkloadController(
 		mgr.GetClient(),
 		mgr.GetScheme(),
-		watcher,
+		admissionService,
 		clock.RealClock{},
-	)).SetupWithManager(mgr, eventsCh); err != nil {
+	)
+	if err = workloadController.SetupWithManager(mgr, eventsCh); err != nil {
 		setupLog.Error(err, "unable to create controller",
 			"controller", "Workload")
 		os.Exit(1)
@@ -359,7 +356,7 @@ func main() {
 	}
 
 	setupLog.Info("starting manager")
-	if err := mgr.Start(ctx); err != nil {
+	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}

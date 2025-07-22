@@ -1,6 +1,84 @@
 apiVersion: kueue.x-k8s.io/v1beta1
 kind: AdmissionCheck
 metadata:
-  name: am-test
+  name: sample-admission-check
 spec:
   controllerName: konflux-ci.dev/kueue-external-admission
+  # TODO: Implement proper parameter parsing in the controller
+  # For now, the controller uses hardcoded AlertManager configuration
+  # Future implementation will parse these parameters:
+  # parameters:
+  #   apiVersion: kueue.example.com/v1alpha1
+  #   kind: AlertManagerAdmissionCheckConfig
+  #   alertManager:
+  #     url: "http://alertmanager.monitoring.svc.cluster.local:9093"
+  #     timeout: "10s"
+  #   alertFilters:
+  #     alertNames:
+  #       - "HighCPUUsage"
+  #       - "HighMemoryUsage" 
+  #       - "NodeNotReady"
+  #       - "KubernetesPodCrashLooping"
+  #       - "DiskSpaceRunningLow"
+  #   polling:
+  #     interval: "30s"
+  #     failureThreshold: 3
+
+---
+# Example workflow demonstrating how event-driven admission works:
+#
+# 1. WORKLOAD CREATED:
+# apiVersion: kueue.x-k8s.io/v1beta1
+# kind: Workload  
+# metadata:
+#   name: my-workload
+# status:
+#   admissionChecks:
+#   - name: sample-admission-check
+#     state: Pending
+#     message: "denying workload due to firing alerts: HighCPUUsage, NodeNotReady"
+#
+# 2. ALERTS RESOLVE (CPU usage drops, node becomes ready)
+#    - AlertMonitor detects the change every 30 seconds
+#    - Emits GenericEvent for affected workloads
+#    - WorkloadReconciler is triggered via WatchesRawSource
+#
+# 3. WORKLOAD RE-EVALUATED:
+# status:
+#   admissionChecks:
+#   - name: sample-admission-check  
+#     state: Ready
+#     message: "approving workload"
+#
+# 4. WORKLOAD GETS ADMITTED:
+#    - Kueue sees the Ready state and admits the workload
+#    - Workload starts running on the cluster
+#
+# WITHOUT the event system, the workload would remain stuck in 
+# denial state even after alerts resolve, requiring manual intervention.
+
+---
+# Alert Monitor Architecture:
+#
+# ┌─────────────────┐    ┌──────────────────┐    ┌─────────────────────┐
+# │   AlertManager  │◄───│ AlertMonitor     │◄───│  AdmissionService   │
+# │   (Prometheus)  │    │ (every 30s)     │    │  (per-check config) │
+# └─────────────────┘    └──────────────────┘    └─────────────────────┘
+#                                │
+#                                ▼
+#                        ┌──────────────────┐
+#                        │  Events Channel  │
+#                        │  GenericEvent    │
+#                        └──────────────────┘
+#                                │
+#                                ▼
+#                        ┌──────────────────┐
+#                        │ WorkloadReconciler│
+#                        │ WatchesRawSource │
+#                        └──────────────────┘
+#                                │
+#                                ▼
+#                        ┌──────────────────┐
+#                        │  Workload Status │
+#                        │  Updated         │
+#                        └──────────────────┘
