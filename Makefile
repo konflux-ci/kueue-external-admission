@@ -252,7 +252,7 @@ load-image: docker-build
 .PHONY: prometheus
 prometheus:
 	$(KUBECTL) apply --server-side -k deploy/prometheous/operator
-	$(KUBECTL) wait --for=0condition=Available deployment --all -n monitoring --timeout=300s
+	$(KUBECTL) wait --for=condition=Available deployment --all -n monitoring --timeout=300s
 	$(KUBECTL) apply -k deploy/prometheous/deployments
 	sleep 10
 	$(KUBECTL) wait --for=condition=Ready -l app.kubernetes.io/managed-by=prometheus-operator -n monitoring --timeout=300s pod
