@@ -86,11 +86,15 @@ func (r *AdmissionCheckReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 
 	// Create or update AlertManager admitter
-	admitter := watcher.NewAlertManagerAdmitter(
+	admitter, err := watcher.NewAlertManagerAdmitter(
 		config.AlertManager.URL,
 		config.AlertFilters.AlertNames,
 		log.WithValues("admissionCheck", req.Name),
 	)
+	if err != nil {
+		log.Error(err, "Failed to create AlertManager admitter")
+		return r.updateAdmissionCheckStatus(ctx, ac, false, "failed to create AlertManager admitter: "+err.Error())
+	}
 
 	// Register the admitter with the shared service (using interface)
 	r.admissionService.SetAdmitter(req.Name, admitter)

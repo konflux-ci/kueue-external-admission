@@ -2,14 +2,15 @@ package watcher
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"net/url"
-	"time"
 
 	"github.com/go-logr/logr"
+	httptransport "github.com/go-openapi/runtime/client"
+	"github.com/go-openapi/strfmt"
+	alertclient "github.com/prometheus/alertmanager/api/v2/client"
+	"github.com/prometheus/alertmanager/api/v2/client/alert"
+	"github.com/prometheus/alertmanager/api/v2/models"
 )
 
 // Admitter determines whether admission should be allowed
@@ -19,45 +20,43 @@ type Admitter interface {
 
 // AlertManagerAdmitter queries AlertManager v2 API to check for active alerts
 type AlertManagerAdmitter struct {
-	client          *http.Client
-	alertManagerURL string
-	alertFilters    []string // Alert names or label filters to check for
-	logger          logr.Logger
-}
-
-// AlertManagerAlert represents an alert from AlertManager API v2
-type AlertManagerAlert struct {
-	Status       string            `json:"status"` // "firing" or "resolved"
-	Labels       map[string]string `json:"labels"`
-	Annotations  map[string]string `json:"annotations"`
-	StartsAt     time.Time         `json:"startsAt"`
-	EndsAt       time.Time         `json:"endsAt"`
-	GeneratorURL string            `json:"generatorURL"`
-	Fingerprint  string            `json:"fingerprint"`
-}
-
-// AlertManagerResponse represents the response from AlertManager API v2
-type AlertManagerResponse struct {
-	Status string              `json:"status"`
-	Data   []AlertManagerAlert `json:"data"`
+	client       *alertclient.AlertmanagerAPI
+	alertFilters []string // Alert names or label filters to check for
+	logger       logr.Logger
 }
 
 var _ Admitter = &AlertManagerAdmitter{}
 
-// NewAlertManagerAdmitter creates a new AlertManager client
+// NewAlertManagerAdmitter creates a new AlertManager client using the official API v2 client
 func NewAlertManagerAdmitter(
 	alertManagerURL string,
 	alertFilters []string,
 	logger logr.Logger,
-) *AlertManagerAdmitter {
-	return &AlertManagerAdmitter{
-		client: &http.Client{
-			Timeout: 10 * time.Second,
-		},
-		alertManagerURL: alertManagerURL,
-		alertFilters:    alertFilters,
-		logger:          logger,
+) (*AlertManagerAdmitter, error) {
+	// Parse the AlertManager URL
+	u, err := url.Parse(alertManagerURL)
+	if err != nil {
+		return nil, fmt.Errorf("invalid AlertManager URL %q: %w", alertManagerURL, err)
 	}
+
+	// Create transport config
+	transportConfig := alertclient.DefaultTransportConfig().
+		WithHost(u.Host).
+		WithBasePath(u.Path).
+		WithSchemes([]string{u.Scheme})
+
+	// Create HTTP transport
+	transport := httptransport.New(transportConfig.Host, transportConfig.BasePath, transportConfig.Schemes)
+	// Set timeout via default transport config (handled by go-openapi runtime)
+
+	// Create AlertManager API client
+	client := alertclient.New(transport, strfmt.Default)
+
+	return &AlertManagerAdmitter{
+		client:       client,
+		alertFilters: alertFilters,
+		logger:       logger,
+	}, nil
 }
 
 // ShouldAdmit implements Admitter interface
@@ -77,7 +76,7 @@ func (a *AlertManagerAdmitter) ShouldAdmit(ctx context.Context) (AdmissionResult
 	// If no alert filters are specified, admit by default
 	if len(a.alertFilters) == 0 {
 		a.logger.Info("No alert filters configured, admitting by default")
-		return result, nil // Already admits by default
+		return result, nil
 	}
 
 	// Check if any of the filtered alerts are firing
@@ -98,68 +97,36 @@ func (a *AlertManagerAdmitter) ShouldAdmit(ctx context.Context) (AdmissionResult
 	return result, nil
 }
 
-// getActiveAlerts queries the AlertManager v2 API for active alerts
-func (a *AlertManagerAdmitter) getActiveAlerts(ctx context.Context) ([]AlertManagerAlert, error) {
-	// Build the API URL
-	apiURL := fmt.Sprintf("%s/api/v2/alerts", a.alertManagerURL)
+// getActiveAlerts queries the AlertManager v2 API for active alerts using the official client
+func (a *AlertManagerAdmitter) getActiveAlerts(ctx context.Context) ([]*models.GettableAlert, error) {
+	params := alert.NewGetAlertsParamsWithContext(ctx).WithDefaults()
 
-	// Add query parameters if needed (e.g., for filtering)
-	u, err := url.Parse(apiURL)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse AlertManager URL: %w", err)
-	}
-
-	// Create the request
-	req, err := http.NewRequestWithContext(ctx, "GET", u.String(), nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-
-	// Make the request
-	resp, err := a.client.Do(req)
+	// Query alerts using the official client
+	resp, err := a.client.Alert.GetAlerts(params)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query AlertManager: %w", err)
 	}
-	defer func() {
-		if closeErr := resp.Body.Close(); closeErr != nil {
-			a.logger.Error(closeErr, "Failed to close response body")
-		}
-	}()
 
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("AlertManager returned status %d: %s", resp.StatusCode, string(body))
-	}
-
-	// Parse the response
-	var alertResponse AlertManagerResponse
-	if err := json.NewDecoder(resp.Body).Decode(&alertResponse); err != nil {
-		return nil, fmt.Errorf("failed to decode AlertManager response: %w", err)
-	}
-
-	if alertResponse.Status != "success" {
-		return nil, fmt.Errorf("AlertManager API returned error status: %s", alertResponse.Status)
-	}
-
-	return alertResponse.Data, nil
+	return resp.Payload, nil
 }
 
 // findFiringAlerts filters alerts to find those that are currently firing and match our filters
-func (a *AlertManagerAdmitter) findFiringAlerts(alerts []AlertManagerAlert) []AlertManagerAlert {
-	var firingAlerts []AlertManagerAlert
+func (a *AlertManagerAdmitter) findFiringAlerts(alerts []*models.GettableAlert) []*models.GettableAlert {
+	var firingAlerts []*models.GettableAlert
 
-	for _, alert := range alerts {
+	for _, alertPtr := range alerts {
+		if alertPtr == nil || alertPtr.Status == nil {
+			continue
+		}
+
 		// Skip if not firing
-		if alert.Status != "firing" {
+		if *alertPtr.Status.State != "firing" {
 			continue
 		}
 
 		// Check if this alert matches any of our filters
-		if a.matchesFilters(alert) {
-			firingAlerts = append(firingAlerts, alert)
+		if a.matchesFilters(alertPtr) {
+			firingAlerts = append(firingAlerts, alertPtr)
 		}
 	}
 
@@ -167,10 +134,14 @@ func (a *AlertManagerAdmitter) findFiringAlerts(alerts []AlertManagerAlert) []Al
 }
 
 // matchesFilters checks if an alert matches any of the configured filters
-func (a *AlertManagerAdmitter) matchesFilters(alert AlertManagerAlert) bool {
+func (a *AlertManagerAdmitter) matchesFilters(alert *models.GettableAlert) bool {
+	if alert.Labels == nil {
+		return false
+	}
+
 	for _, filter := range a.alertFilters {
 		// Check if filter matches alert name
-		if alertName, ok := alert.Labels["alertname"]; ok && alertName == filter {
+		if alertName, exists := alert.Labels["alertname"]; exists && alertName == filter {
 			return true
 		}
 
@@ -182,11 +153,13 @@ func (a *AlertManagerAdmitter) matchesFilters(alert AlertManagerAlert) bool {
 }
 
 // getAlertNames extracts alert names from alerts for logging
-func (a *AlertManagerAdmitter) getAlertNames(alerts []AlertManagerAlert) []string {
+func (a *AlertManagerAdmitter) getAlertNames(alerts []*models.GettableAlert) []string {
 	var names []string
 	for _, alert := range alerts {
-		if name, ok := alert.Labels["alertname"]; ok {
-			names = append(names, name)
+		if alert.Labels != nil {
+			if name, ok := alert.Labels["alertname"]; ok {
+				names = append(names, name)
+			}
 		}
 	}
 	return names
@@ -201,7 +174,8 @@ func (a *AlertManagerAdmitter) GetFiringAlerts(ctx context.Context) ([]string, e
 
 	var firingAlerts []string
 	for _, alert := range alerts {
-		if alert.Status == "firing" && a.matchesFilters(alert) {
+		if alert != nil && alert.Status != nil &&
+			*alert.Status.State == "firing" && a.matchesFilters(alert) {
 			alertName := a.getAlertName(alert)
 			firingAlerts = append(firingAlerts, alertName)
 		}
@@ -211,7 +185,11 @@ func (a *AlertManagerAdmitter) GetFiringAlerts(ctx context.Context) ([]string, e
 }
 
 // getAlertName extracts a meaningful name for the alert
-func (a *AlertManagerAdmitter) getAlertName(alert AlertManagerAlert) string {
+func (a *AlertManagerAdmitter) getAlertName(alert *models.GettableAlert) string {
+	if alert.Labels == nil {
+		return "unknown-alert"
+	}
+
 	// Try to get the alertname label first
 	if alertName, exists := alert.Labels["alertname"]; exists {
 		return alertName
