@@ -23,6 +23,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -32,16 +33,20 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 
+	"github.com/konflux-ci/kueue-external-admission/internal/controller"
 	"github.com/konflux-ci/kueue-external-admission/test/utils"
+	kerrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/resource"
 )
 
 // namespace where the project is deployed in
@@ -187,7 +192,7 @@ var _ = Describe("Manager", Ordered, func() {
 
 				podOutput, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred(), "Failed to retrieve controller-manager pod information")
-				podNames := utils.GetNonEmptyLines(podOutput)
+				podNames := utils.GetNonEmptyLines(string(podOutput))
 				g.Expect(podNames).To(HaveLen(1), "expected 1 controller pod running")
 				controllerPodName = podNames[0]
 				g.Expect(controllerPodName).To(ContainSubstring("controller-manager"))
@@ -206,12 +211,23 @@ var _ = Describe("Manager", Ordered, func() {
 
 		It("should ensure the metrics endpoint is serving metrics", func() {
 			By("creating a ClusterRoleBinding for the service account to allow access to metrics")
-			cmd := exec.Command("kubectl", "create", "clusterrolebinding", metricsRoleBindingName,
+			cmd := exec.Command(
+				"kubectl",
+				"create",
+				"clusterrolebinding",
+				"--dry-run=client",
+				"-o",
+				"yaml",
+				metricsRoleBindingName,
 				"--clusterrole=alert-mgr-kueue-admission-metrics-reader",
 				fmt.Sprintf("--serviceaccount=%s:%s", namespace, serviceAccountName),
 			)
-			_, err := utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred(), "Failed to create ClusterRoleBinding")
+			crb, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to generate ClusterRoleBinding")
+
+			cmd = exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(crb)
+			Expect(utils.Run(cmd)).Error().NotTo(HaveOccurred(), "Failed to apply ClusterRoleBinding")
 
 			By("validating that the metrics service is available")
 			cmd = exec.Command("kubectl", "get", "service", metricsServiceName, "-n", namespace)
@@ -305,6 +321,103 @@ var _ = Describe("Manager", Ordered, func() {
 		//    fmt.Sprintf(`controller_runtime_reconcile_total{controller="%s",result="success"} 1`,
 		//    strings.ToLower(<Kind>),
 		// ))
+
+		It("should handle AlertManager admission check integration", func(ctx context.Context) {
+			admissionCheckName := "test-alertmanager-check"
+
+			By("applying test resources using server-side apply")
+			cmd := exec.Command("kubectl", "apply", "--server-side", "--field-manager=e2e-test", "--force-conflicts", "-f", "test/e2e/test-resources.yaml")
+			output, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to apply test resources: %s", output)
+
+			By("verifying the AdmissionCheck is Active")
+			Eventually(func(g Gomega) {
+				var createdAdmissionCheck kueue.AdmissionCheck
+				err := k8sClient.Get(ctx, client.ObjectKey{Name: admissionCheckName}, &createdAdmissionCheck)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(createdAdmissionCheck.Name).To(Equal(admissionCheckName))
+				g.Expect(createdAdmissionCheck.Spec.ControllerName).To(Equal(controller.ControllerName))
+
+				currentCondition := ptr.Deref(apimeta.FindStatusCondition(createdAdmissionCheck.Status.Conditions, kueue.AdmissionCheckActive), metav1.Condition{})
+				g.Expect(currentCondition.Status).To(Equal(metav1.ConditionTrue))
+			}).Should(Succeed())
+
+			By("verifying the ClusterQueue is Active")
+			Eventually(func(g Gomega) {
+				var createdClusterQueue kueue.ClusterQueue
+				err := k8sClient.Get(ctx, client.ObjectKey{Name: "test-cluster-queue"}, &createdClusterQueue)
+				g.Expect(err).NotTo(HaveOccurred())
+				currentCondition := ptr.Deref(apimeta.FindStatusCondition(createdClusterQueue.Status.Conditions, kueue.ClusterQueueActive), metav1.Condition{})
+				g.Expect(currentCondition.Status).To(Equal(metav1.ConditionTrue))
+			}).Should(Succeed())
+
+			By("creating a Workload with generated name")
+			workload := &kueue.Workload{
+				ObjectMeta: metav1.ObjectMeta{
+					GenerateName: "test-workload-",
+					Namespace:    nsName,
+				},
+				Spec: kueue.WorkloadSpec{
+					QueueName: "test-local-queue",
+					PodSets: []kueue.PodSet{
+						{
+							Name:  "main",
+							Count: 1,
+							Template: corev1.PodTemplateSpec{
+								Spec: corev1.PodSpec{
+									RestartPolicy: corev1.RestartPolicyNever,
+									Containers: []corev1.Container{
+										{
+											Name:  "test-container",
+											Image: "busybox",
+											Resources: corev1.ResourceRequirements{
+												Requests: corev1.ResourceList{
+													"cpu":    resource.MustParse("100m"),
+													"memory": resource.MustParse("128Mi"),
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, workload)).To(Succeed())
+
+			By("verifying the workload admission check status")
+			Eventually(func(g Gomega) {
+				var createdWorkload kueue.Workload
+				err := k8sClient.Get(ctx, client.ObjectKey{Name: workload.Name, Namespace: nsName}, &createdWorkload)
+				g.Expect(err).NotTo(HaveOccurred())
+
+				// Since AlertManager is unreachable, the workload should be denied
+				// and the admission check should be in Pending state with an error message
+				var found bool
+				for _, check := range createdWorkload.Status.AdmissionChecks {
+					if check.Name == admissionCheckName {
+						found = true
+						g.Expect(check.State).To(Equal(kueue.CheckStateReady))
+						g.Expect(check.Message).To(ContainSubstring("denying workload"))
+						break
+					}
+				}
+				g.Expect(found).To(BeTrue(), "AdmissionCheck should be present in workload status")
+			}, 2*time.Minute).Should(Succeed())
+
+			By("verifying controller logs contain expected admission check activity")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "logs", controllerPodName, "-n", namespace)
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+
+				// Should contain logs about the admission check processing
+				g.Expect(string(output)).To(ContainSubstring("Created/updated AlertManager admitter for AdmissionCheck"))
+				g.Expect(string(output)).To(ContainSubstring("Error checking admission for AdmissionCheck"))
+			}).Should(Succeed())
+
+		})
 	})
 })
 
@@ -320,6 +433,15 @@ func getK8sClientOrDie(ctx context.Context) client.Client {
 
 	_, err = k8sCache.GetInformer(ctx, &kueue.Workload{})
 	Expect(err).ToNot(HaveOccurred(), "failed to setup informer for workloads")
+
+	_, err = k8sCache.GetInformer(ctx, &kueue.AdmissionCheck{})
+	Expect(err).ToNot(HaveOccurred(), "failed to setup informer for admission checks")
+
+	_, err = k8sCache.GetInformer(ctx, &kueue.ClusterQueue{})
+	Expect(err).ToNot(HaveOccurred(), "failed to setup informer for cluster queues")
+
+	_, err = k8sCache.GetInformer(ctx, &kueue.LocalQueue{})
+	Expect(err).ToNot(HaveOccurred(), "failed to setup informer for local queues")
 
 	go func() {
 		if err := k8sCache.Start(ctx); err != nil {
@@ -390,8 +512,8 @@ func getMetricsOutput() string {
 	cmd := exec.Command("kubectl", "logs", "curl-metrics", "-n", namespace)
 	metricsOutput, err := utils.Run(cmd)
 	Expect(err).NotTo(HaveOccurred(), "Failed to retrieve logs from curl pod")
-	Expect(metricsOutput).To(ContainSubstring("< HTTP/1.1 200 OK"))
-	return metricsOutput
+	Expect(string(metricsOutput)).To(ContainSubstring("< HTTP/1.1 200 OK"))
+	return string(metricsOutput)
 }
 
 // tokenRequest is a simplified representation of the Kubernetes TokenRequest API response,

@@ -39,58 +39,6 @@ const (
 	ControllerName = "konflux-ci.dev/kueue-external-admission"
 )
 
-// AlertManagerAdmissionCheckConfig represents the configuration from AdmissionCheck parameters
-type AlertManagerAdmissionCheckConfig struct {
-	AlertManager AlertManagerConfig `yaml:"alertManager"`
-	AlertFilters AlertFiltersConfig `yaml:"alertFilters"`
-	Polling      PollingConfig      `yaml:"polling"`
-}
-
-type AlertManagerConfig struct {
-	URL       string           `yaml:"url"`
-	Timeout   time.Duration    `yaml:"timeout,omitempty"`
-	TLS       *TLSConfig       `yaml:"tls,omitempty"`
-	BasicAuth *BasicAuthConfig `yaml:"basicAuth,omitempty"`
-}
-
-type TLSConfig struct {
-	InsecureSkipVerify bool   `yaml:"insecureSkipVerify,omitempty"`
-	CAFile             string `yaml:"caFile,omitempty"`
-	CertFile           string `yaml:"certFile,omitempty"`
-	KeyFile            string `yaml:"keyFile,omitempty"`
-}
-
-type BasicAuthConfig struct {
-	Username       string          `yaml:"username"`
-	PasswordSecret SecretReference `yaml:"passwordSecret"`
-}
-
-type SecretReference struct {
-	Name string `yaml:"name"`
-	Key  string `yaml:"key"`
-}
-
-type AlertFiltersConfig struct {
-	AlertNames     []string        `yaml:"alertNames,omitempty"`
-	LabelSelectors []LabelSelector `yaml:"labelSelectors,omitempty"`
-}
-
-type LabelSelector struct {
-	MatchLabels      map[string]string `yaml:"matchLabels,omitempty"`
-	MatchExpressions []MatchExpression `yaml:"matchExpressions,omitempty"`
-}
-
-type MatchExpression struct {
-	Key      string   `yaml:"key"`
-	Operator string   `yaml:"operator"`
-	Values   []string `yaml:"values"`
-}
-
-type PollingConfig struct {
-	Interval         time.Duration `yaml:"interval,omitempty"`
-	FailureThreshold int           `yaml:"failureThreshold,omitempty"`
-}
-
 // NewAdmissionCheckReconciler creates a new AdmissionCheckReconciler
 func NewAdmissionCheckReconciler(client client.Client, scheme *runtime.Scheme, admissionService *watcher.AdmissionService) *AdmissionCheckReconciler {
 	return &AdmissionCheckReconciler{
@@ -134,10 +82,10 @@ func (r *AdmissionCheckReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 
 	// Parse AlertManager configuration from parameters
-	config := r.parseAlertManagerConfig(ac)
+	config := r.parseACConfig(ac)
 	if config == nil {
-		log.Error(nil, "failed to parse AlertManager configuration")
-		return r.updateAdmissionCheckStatus(ctx, ac, false, "failed to parse AlertManager configuration")
+		log.Error(nil, "failed to parse AdmissionCheck configuration")
+		return r.updateAdmissionCheckStatus(ctx, ac, false, "failed to parse AdmissionCheck configuration")
 	}
 
 	// Create or update AlertManager admitter
@@ -155,8 +103,8 @@ func (r *AdmissionCheckReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	return r.updateAdmissionCheckStatus(ctx, ac, true, "AlertManager admission check is active")
 }
 
-// parseAlertManagerConfig parses the AlertManager configuration from AdmissionCheck parameters
-func (r *AdmissionCheckReconciler) parseAlertManagerConfig(_ *kueue.AdmissionCheck) *AlertManagerAdmissionCheckConfig {
+// parseACConfig parses the AlertManager configuration from AdmissionCheck parameters
+func (r *AdmissionCheckReconciler) parseACConfig(_ *kueue.AdmissionCheck) *AlertManagerAdmissionCheckConfig {
 	// For now, use a simple hardcoded configuration until we implement proper parameter parsing
 	// TODO: Implement proper parameter parsing based on Kueue's parameter structure
 	// This would involve reading from ac.Spec.Parameters and parsing the configuration

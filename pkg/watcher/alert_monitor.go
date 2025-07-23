@@ -21,6 +21,7 @@ type Lister interface {
 type AlertMonitor struct {
 	admissionService *AdmissionService
 	lister           Lister
+	client           client.Client
 	period           time.Duration
 	logger           logr.Logger
 	stopChan         chan struct{}
@@ -33,12 +34,14 @@ var _ manager.Runnable = &AlertMonitor{}
 func NewAlertMonitor(
 	admissionService *AdmissionService,
 	lister Lister,
+	client client.Client,
 	period time.Duration,
 	logger logr.Logger,
 ) *AlertMonitor {
 	return &AlertMonitor{
 		admissionService: admissionService,
 		lister:           lister,
+		client:           client,
 		period:           period,
 		logger:           logger,
 		stopChan:         make(chan struct{}),
@@ -118,7 +121,7 @@ func (m *AlertMonitor) checkAndEmitEvents(ctx context.Context, previousStates ma
 		// Get admission checks for this workload (using the controller name constant)
 		relevantChecks, err := admissioncheck.FilterForController(
 			ctx,
-			nil,
+			m.client,
 			workload.Status.AdmissionChecks,
 			"konflux-ci.dev/kueue-external-admission",
 		)

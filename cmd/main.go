@@ -306,6 +306,7 @@ func main() {
 	alertMonitor := watcher.NewAlertMonitor(
 		admissionService,
 		controller.NewWorkloadLister(mgr.GetClient()),
+		mgr.GetClient(),
 		30*time.Second, // Check every 30 seconds
 		setupLog.WithName("alert-monitor"),
 	)
