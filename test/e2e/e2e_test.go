@@ -407,14 +407,12 @@ var _ = Describe("Manager", Ordered, func() {
 				err := k8sClient.Get(ctx, client.ObjectKey{Name: workload.Name, Namespace: nsName}, &createdWorkload)
 				g.Expect(err).NotTo(HaveOccurred())
 
-				// Since AlertManager is unreachable, the workload should be denied
-				// and the admission check should be in Pending state with an error message
 				var found bool
 				for _, check := range createdWorkload.Status.AdmissionChecks {
 					if check.Name == admissionCheckName {
 						found = true
 						g.Expect(check.State).To(Equal(kueue.CheckStateReady))
-						g.Expect(check.Message).To(ContainSubstring("denying workload"))
+						g.Expect(check.Message).To(ContainSubstring("approving workload"))
 						break
 					}
 				}

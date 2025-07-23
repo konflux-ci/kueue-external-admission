@@ -113,7 +113,7 @@ func (r *AdmissionCheckReconciler) parseACConfig(_ *kueue.AdmissionCheck) *Alert
 	// Create a default configuration for demonstration
 	config := &AlertManagerAdmissionCheckConfig{
 		AlertManager: AlertManagerConfig{
-			URL:     "http://alertmanager-operated.monitoring.svc.cluster.local:9093",
+			URL:     "http://alertmanager-operated.monitoring.svc.cluster.local:9093/api/v2",
 			Timeout: 10 * time.Second,
 		},
 		AlertFilters: AlertFiltersConfig{
