@@ -33,10 +33,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 
 	"github.com/konflux-ci/kueue-external-admission/pkg/watcher"
-)
-
-const (
-	ControllerName = "konflux-ci.dev/kueue-external-admission"
+	"github.com/konflux-ci/kueue-external-admission/pkg/constant"
 )
 
 // NewAdmissionCheckReconciler creates a new AdmissionCheckReconciler
@@ -77,7 +74,7 @@ func (r *AdmissionCheckReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 
 	// Only handle our controller
-	if ac.Spec.ControllerName != ControllerName {
+	if ac.Spec.ControllerName != constant.ControllerName {
 		return ctrl.Result{}, nil
 	}
 
@@ -112,7 +109,7 @@ func (r *AdmissionCheckReconciler) parseACConfig(_ *kueue.AdmissionCheck) *Alert
 	// Create a default configuration for demonstration
 	config := &AlertManagerAdmissionCheckConfig{
 		AlertManager: AlertManagerConfig{
-			URL:     "http://alertmanager.monitoring.svc.cluster.local:9093",
+			URL:     "http://alertmanager-operated.monitoring.svc.cluster.local:9093",
 			Timeout: 10 * time.Second,
 		},
 		AlertFilters: AlertFiltersConfig{

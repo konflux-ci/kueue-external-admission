@@ -10,6 +10,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
+	"sigs.k8s.io/kueue/pkg/workload"
+
+	"github.com/konflux-ci/kueue-external-admission/pkg/constant"
 )
 
 // Lister provides a way to list objects that need admission checking
@@ -111,22 +114,26 @@ func (m *AlertMonitor) checkAndEmitEvents(ctx context.Context, previousStates ma
 	currentStates := make(map[string]bool)
 
 	for _, obj := range workloads {
-		workload, ok := obj.(*kueue.Workload)
+		wl, ok := obj.(*kueue.Workload)
 		if !ok {
 			continue
 		}
 
-		workloadKey := client.ObjectKeyFromObject(workload).String()
+		if workload.IsAdmitted(wl) {
+			continue
+		}
+
+		workloadKey := client.ObjectKeyFromObject(wl).String()
 
 		// Get admission checks for this workload (using the controller name constant)
 		relevantChecks, err := admissioncheck.FilterForController(
 			ctx,
 			m.client,
-			workload.Status.AdmissionChecks,
-			"konflux-ci.dev/kueue-external-admission",
+			wl.Status.AdmissionChecks,
+			constant.ControllerName,
 		)
 		if err != nil {
-			m.logger.Error(err, "Failed to filter admission checks", "workload", workload.Name)
+			m.logger.Error(err, "Failed to filter admission checks", "workload", wl.Name)
 			continue
 		}
 
@@ -135,25 +142,30 @@ func (m *AlertMonitor) checkAndEmitEvents(ctx context.Context, previousStates ma
 		}
 
 		// Check current admission state
-		result := m.admissionService.ShouldAdmitWorkload(ctx, relevantChecks)
+		result, err := m.admissionService.ShouldAdmitWorkload(ctx, relevantChecks)
+		if err != nil {
+			m.logger.Error(err, "Failed to check admission state", "workload", wl.Name)
+			continue
+		}
+
 		currentState := result.ShouldAdmit()
 		currentStates[workloadKey] = currentState
 
 		// Compare with previous state and emit event if changed
 		if prevState, existed := previousStates[workloadKey]; !existed || prevState != currentState {
 			m.logger.Info("Alert state changed for workload, emitting reconcile event",
-				"workload", workload.Name,
-				"namespace", workload.Namespace,
+				"workload", wl.Name,
+				"namespace", wl.Namespace,
 				"previousState", prevState,
 				"currentState", currentState)
 
 			// Emit generic event to trigger workload reconciliation
 			select {
-			case m.admissionService.eventsChannel <- event.GenericEvent{Object: workload}:
+			case m.admissionService.eventsChannel <- event.GenericEvent{Object: wl}:
 				// Event sent successfully
 			default:
 				// Channel full, log warning but continue
-				m.logger.V(1).Info("Events channel full, skipping event", "workload", workload.Name)
+				m.logger.V(1).Info("Events channel full, skipping event", "workload", wl.Name)
 			}
 		}
 	}

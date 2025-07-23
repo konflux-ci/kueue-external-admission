@@ -53,13 +53,10 @@ func (s *AdmissionService) GetAdmitter(admissionCheckName string) (Admitter, boo
 }
 
 // ShouldAdmitWorkload checks all relevant admitters for a workload admission
-func (s *AdmissionService) ShouldAdmitWorkload(ctx context.Context, admissionCheckNames []string) AdmissionResult {
+func (s *AdmissionService) ShouldAdmitWorkload(ctx context.Context, admissionCheckNames []string) (AdmissionResult, error) {
 	// Create the result to aggregate multiple admission checks
-	aggregatedResult := &defaultAdmissionResult{
-		shouldAdmit:  true,
-		firingAlerts: make(map[string][]string),
-		errors:       make(map[string]error),
-	}
+	aggregatedResult := NewAdmissionResult()
+	aggregatedResult.setAdmissionAllowed()
 
 	// Check each relevant admission check
 	for _, checkName := range admissionCheckNames {
@@ -71,12 +68,14 @@ func (s *AdmissionService) ShouldAdmitWorkload(ctx context.Context, admissionChe
 
 		admitter, ok := value.(Admitter)
 		if !ok {
-			s.logger.Error(nil, "Invalid admitter type found", "admissionCheck", checkName)
-			continue
+			return nil, fmt.Errorf("invalid admitter type found for admission check %s", checkName)
 		}
 
 		// Get admission result from the admitter
-		result := admitter.ShouldAdmit(ctx)
+		result, err := admitter.ShouldAdmit(ctx)
+		if err != nil {
+			return nil, err
+		}
 
 		// Aggregate results
 		if !result.ShouldAdmit() {
@@ -87,28 +86,14 @@ func (s *AdmissionService) ShouldAdmitWorkload(ctx context.Context, admissionChe
 				key := fmt.Sprintf("%s.%s", checkName, source)
 				aggregatedResult.addFiringAlerts(key, alerts)
 			}
-
-			// Merge errors
-			for source, err := range result.GetErrors() {
-				key := fmt.Sprintf("%s.%s", checkName, source)
-				aggregatedResult.addError(key, err)
-			}
-
-			s.logger.Info("AdmissionCheck denied admission",
-				"admissionCheck", checkName,
-				"firingAlerts", result.GetFiringAlerts(),
-				"errors", result.GetErrors())
 		}
 	}
 
 	if aggregatedResult.ShouldAdmit() {
 		s.logger.Info("All AdmissionChecks allow admission", "admissionChecks", admissionCheckNames)
 	} else {
-		s.logger.Info("Admission denied due to one or more failing checks",
-			"admissionChecks", admissionCheckNames,
-			"firingAlerts", aggregatedResult.GetFiringAlerts(),
-			"errors", aggregatedResult.GetErrors())
+		s.logger.Info("Admission denied due to one or more failing checks", "admissionChecks", admissionCheckNames, "firingAlerts", aggregatedResult.GetFiringAlerts())
 	}
 
-	return aggregatedResult
+	return aggregatedResult, nil
 }

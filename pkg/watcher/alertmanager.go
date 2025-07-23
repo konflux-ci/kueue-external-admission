@@ -14,7 +14,7 @@ import (
 
 // Admitter determines whether admission should be allowed
 type Admitter interface {
-	ShouldAdmit(context.Context) AdmissionResult
+	ShouldAdmit(context.Context) (AdmissionResult, error)
 }
 
 // AlertManagerAdmitter queries AlertManager v2 API to check for active alerts
@@ -62,7 +62,7 @@ func NewAlertManagerAdmitter(
 
 // ShouldAdmit implements Admitter interface
 // Returns an AdmissionResult indicating whether to admit and any firing alerts
-func (a *AlertManagerAdmitter) ShouldAdmit(ctx context.Context) AdmissionResult {
+func (a *AlertManagerAdmitter) ShouldAdmit(ctx context.Context) (AdmissionResult, error) {
 	result := &defaultAdmissionResult{
 		shouldAdmit:  true,
 		firingAlerts: make(map[string][]string),
