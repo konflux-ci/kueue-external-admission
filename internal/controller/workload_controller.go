@@ -38,6 +38,8 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/workload"
+
+	"github.com/konflux-ci/kueue-external-admission/pkg/constant"
 )
 
 // WorkloadReconciler reconciles a Workload object
@@ -94,7 +96,7 @@ func (w *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	// Filter to get only the admission checks managed by our controller
 	// from the ones configured for this workload's ClusterQueue
-	relevantChecks, err := admissioncheck.FilterForController(ctx, w.client, wl.Status.AdmissionChecks, ControllerName)
+	relevantChecks, err := admissioncheck.FilterForController(ctx, w.client, wl.Status.AdmissionChecks, constant.ControllerName)
 	if err != nil {
 		return reconcile.Result{}, err
 	}
@@ -102,13 +104,13 @@ func (w *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	if len(relevantChecks) == 0 {
 		log.Info("No admission checks managed by our controller found for this workload",
 			"workload", wl.Name,
-			"controller", ControllerName)
+			"controller", constant.ControllerName)
 		return reconcile.Result{}, nil
 	}
 
 	log.Info("Found admission checks managed by our controller",
 		"workload", wl.Name,
-		"controller", ControllerName,
+		"controller", constant.ControllerName,
 		"relevantChecks", relevantChecks)
 
 	// Use only the admission checks configured for this workload's ClusterQueue
@@ -118,11 +120,10 @@ func (w *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	// Check admission using the shared service - this will only check the
 	// AlertManager admitters for the specific admission checks configured
 	// for this workload's ClusterQueue
-	admissionResult := w.admissionService.ShouldAdmitWorkload(ctx, admissionCheckNames)
-
-	// Log any errors but continue processing
-	for checkName, err := range admissionResult.GetErrors() {
-		log.Error(err, "Error checking admission for AdmissionCheck", "admissionCheck", checkName, "workload", wl.Name)
+	admissionResult, err := w.admissionService.ShouldAdmitWorkload(ctx, admissionCheckNames)
+	if err != nil {
+		log.Error(err, "Error checking admission for AdmissionCheck", "workload", wl.Name)
+		return reconcile.Result{}, err
 	}
 
 	wlPatch := workload.BaseSSAWorkload(wl)
@@ -142,10 +143,7 @@ func (w *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 				} else {
 					message = fmt.Sprintf("denying workload due to firing alerts: %s", strings.Join(alerts, ", "))
 				}
-			} else if err, hasError := admissionResult.GetErrors()[check]; hasError {
-				message = fmt.Sprintf("denying workload due to error: %s", err.Error())
 			}
-			// else keep the default "denying workload" message
 		}
 
 		newCheck := kueue.AdmissionCheckState{
@@ -158,7 +156,7 @@ func (w *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	// make the update only if the workload was changed?
-	err = w.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(ControllerName), client.ForceOwnership)
+	err = w.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(constant.ControllerName), client.ForceOwnership)
 	if err != nil {
 		return ctrl.Result{}, err
 	}

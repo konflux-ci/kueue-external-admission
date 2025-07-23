@@ -42,7 +42,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 
-	"github.com/konflux-ci/kueue-external-admission/internal/controller"
+	"github.com/konflux-ci/kueue-external-admission/pkg/constant"
 	"github.com/konflux-ci/kueue-external-admission/test/utils"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -192,7 +192,7 @@ var _ = Describe("Manager", Ordered, func() {
 
 				podOutput, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred(), "Failed to retrieve controller-manager pod information")
-				podNames := utils.GetNonEmptyLines(string(podOutput))
+				podNames := utils.GetNonEmptyLines(podOutput)
 				g.Expect(podNames).To(HaveLen(1), "expected 1 controller pod running")
 				controllerPodName = podNames[0]
 				g.Expect(controllerPodName).To(ContainSubstring("controller-manager"))
@@ -326,7 +326,10 @@ var _ = Describe("Manager", Ordered, func() {
 			admissionCheckName := "test-alertmanager-check"
 
 			By("applying test resources using server-side apply")
-			cmd := exec.Command("kubectl", "apply", "--server-side", "--field-manager=e2e-test", "--force-conflicts", "-f", "test/e2e/test-resources.yaml")
+			cmd := exec.Command(
+				"kubectl", "apply", "--server-side", "--field-manager=e2e-test",
+				"--force-conflicts", "-f", "test/e2e/test-resources.yaml",
+			)
 			output, err := utils.Run(cmd)
 			Expect(err).NotTo(HaveOccurred(), "Failed to apply test resources: %s", output)
 
@@ -336,9 +339,15 @@ var _ = Describe("Manager", Ordered, func() {
 				err := k8sClient.Get(ctx, client.ObjectKey{Name: admissionCheckName}, &createdAdmissionCheck)
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(createdAdmissionCheck.Name).To(Equal(admissionCheckName))
-				g.Expect(createdAdmissionCheck.Spec.ControllerName).To(Equal(controller.ControllerName))
+				g.Expect(createdAdmissionCheck.Spec.ControllerName).To(Equal(constant.ControllerName))
 
-				currentCondition := ptr.Deref(apimeta.FindStatusCondition(createdAdmissionCheck.Status.Conditions, kueue.AdmissionCheckActive), metav1.Condition{})
+				currentCondition := ptr.Deref(
+					apimeta.FindStatusCondition(
+						createdAdmissionCheck.Status.Conditions,
+						kueue.AdmissionCheckActive,
+					),
+					metav1.Condition{},
+				)
 				g.Expect(currentCondition.Status).To(Equal(metav1.ConditionTrue))
 			}).Should(Succeed())
 
@@ -347,7 +356,13 @@ var _ = Describe("Manager", Ordered, func() {
 				var createdClusterQueue kueue.ClusterQueue
 				err := k8sClient.Get(ctx, client.ObjectKey{Name: "test-cluster-queue"}, &createdClusterQueue)
 				g.Expect(err).NotTo(HaveOccurred())
-				currentCondition := ptr.Deref(apimeta.FindStatusCondition(createdClusterQueue.Status.Conditions, kueue.ClusterQueueActive), metav1.Condition{})
+				currentCondition := ptr.Deref(
+					apimeta.FindStatusCondition(
+						createdClusterQueue.Status.Conditions,
+						kueue.ClusterQueueActive,
+					),
+					metav1.Condition{},
+				)
 				g.Expect(currentCondition.Status).To(Equal(metav1.ConditionTrue))
 			}).Should(Succeed())
 
@@ -413,8 +428,8 @@ var _ = Describe("Manager", Ordered, func() {
 				g.Expect(err).NotTo(HaveOccurred())
 
 				// Should contain logs about the admission check processing
-				g.Expect(string(output)).To(ContainSubstring("Created/updated AlertManager admitter for AdmissionCheck"))
-				g.Expect(string(output)).To(ContainSubstring("Error checking admission for AdmissionCheck"))
+				g.Expect(output).To(ContainSubstring("Created/updated AlertManager admitter for AdmissionCheck"))
+				g.Expect(output).To(ContainSubstring("Error checking admission for AdmissionCheck"))
 			}).Should(Succeed())
 
 		})
@@ -512,8 +527,8 @@ func getMetricsOutput() string {
 	cmd := exec.Command("kubectl", "logs", "curl-metrics", "-n", namespace)
 	metricsOutput, err := utils.Run(cmd)
 	Expect(err).NotTo(HaveOccurred(), "Failed to retrieve logs from curl pod")
-	Expect(string(metricsOutput)).To(ContainSubstring("< HTTP/1.1 200 OK"))
-	return string(metricsOutput)
+	Expect(metricsOutput).To(ContainSubstring("< HTTP/1.1 200 OK"))
+	return metricsOutput
 }
 
 // tokenRequest is a simplified representation of the Kubernetes TokenRequest API response,

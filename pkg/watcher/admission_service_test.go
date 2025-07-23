@@ -72,7 +72,10 @@ func TestAdmissionService_InterfaceFlexibility(t *testing.T) {
 	}
 
 	// Verify it implements the interface correctly
-	result := admitter.ShouldAdmit(context.Background())
+	result, err := admitter.ShouldAdmit(context.Background())
+	if err != nil {
+		t.Error("Expected no error from admitter.ShouldAdmit")
+	}
 	if result == nil {
 		t.Error("Expected non-nil admission result")
 	}

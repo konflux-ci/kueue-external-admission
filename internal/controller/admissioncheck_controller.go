@@ -32,8 +32,8 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 
-	"github.com/konflux-ci/kueue-external-admission/pkg/watcher"
 	"github.com/konflux-ci/kueue-external-admission/pkg/constant"
+	"github.com/konflux-ci/kueue-external-admission/pkg/watcher"
 )
 
 // NewAdmissionCheckReconciler creates a new AdmissionCheckReconciler
@@ -167,7 +167,7 @@ func ControllerNamePredicate() predicate.Predicate {
 		if !ok {
 			return false
 		}
-		return ac.Spec.ControllerName == ControllerName
+		return ac.Spec.ControllerName == constant.ControllerName
 	})
 }
 

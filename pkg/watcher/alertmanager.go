@@ -66,21 +66,18 @@ func (a *AlertManagerAdmitter) ShouldAdmit(ctx context.Context) (AdmissionResult
 	result := &defaultAdmissionResult{
 		shouldAdmit:  true,
 		firingAlerts: make(map[string][]string),
-		errors:       make(map[string]error),
 	}
 
 	alerts, err := a.getActiveAlerts(ctx)
 	if err != nil {
 		a.logger.Error(err, "Failed to get alerts from AlertManager")
-		result.addError("alertmanager", err)
-		result.setAdmissionDenied()
-		return result
+		return nil, err
 	}
 
 	// If no alert filters are specified, admit by default
 	if len(a.alertFilters) == 0 {
 		a.logger.Info("No alert filters configured, admitting by default")
-		return result // Already admits by default
+		return result, nil // Already admits by default
 	}
 
 	// Check if any of the filtered alerts are firing
@@ -98,7 +95,7 @@ func (a *AlertManagerAdmitter) ShouldAdmit(ctx context.Context) (AdmissionResult
 			"totalAlerts", len(alerts))
 	}
 
-	return result
+	return result, nil
 }
 
 // getActiveAlerts queries the AlertManager v2 API for active alerts

@@ -16,9 +16,6 @@ func TestAdmissionResult_NewDefault(t *testing.T) {
 		t.Error("Expected no firing alerts in new AdmissionResult")
 	}
 
-	if len(result.GetErrors()) != 0 {
-		t.Error("Expected no errors in new AdmissionResult")
-	}
 }
 
 func TestAdmissionResult_Interface(t *testing.T) {
@@ -26,7 +23,6 @@ func TestAdmissionResult_Interface(t *testing.T) {
 	result := &defaultAdmissionResult{
 		shouldAdmit:  false,
 		firingAlerts: map[string][]string{"check1": {"alert1", "alert2"}},
-		errors:       map[string]error{"check2": &testError{"test error"}},
 	}
 
 	// Test interface methods
@@ -43,21 +39,12 @@ func TestAdmissionResult_Interface(t *testing.T) {
 		t.Error("Expected two alerts for check1")
 	}
 
-	errors := result.GetErrors()
-	if len(errors) != 1 {
-		t.Error("Expected one error entry")
-	}
-
-	if errors["check2"] == nil {
-		t.Error("Expected error for check2")
-	}
 }
 
 func TestAdmissionResult_InternalMethods(t *testing.T) {
 	result := &defaultAdmissionResult{
 		shouldAdmit:  true,
 		firingAlerts: make(map[string][]string),
-		errors:       make(map[string]error),
 	}
 
 	// Test setAdmissionDenied
@@ -78,21 +65,4 @@ func TestAdmissionResult_InternalMethods(t *testing.T) {
 	if _, exists := alerts["check2"]; exists {
 		t.Error("Expected no entry for check2 when adding empty alerts")
 	}
-
-	// Test addError
-	testErr := &testError{"test error"}
-	result.addError("check1", testErr)
-	errors := result.GetErrors()
-	if errors["check1"] != testErr {
-		t.Error("Expected test error for check1 after addError")
-	}
-}
-
-// testError is a simple error implementation for testing
-type testError struct {
-	msg string
-}
-
-func (e *testError) Error() string {
-	return e.msg
 }

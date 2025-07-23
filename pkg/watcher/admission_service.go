@@ -53,7 +53,10 @@ func (s *AdmissionService) GetAdmitter(admissionCheckName string) (Admitter, boo
 }
 
 // ShouldAdmitWorkload checks all relevant admitters for a workload admission
-func (s *AdmissionService) ShouldAdmitWorkload(ctx context.Context, admissionCheckNames []string) (AdmissionResult, error) {
+func (s *AdmissionService) ShouldAdmitWorkload(
+	ctx context.Context,
+	admissionCheckNames []string,
+) (AdmissionResult, error) {
 	// Create the result to aggregate multiple admission checks
 	aggregatedResult := NewAdmissionResult()
 	aggregatedResult.setAdmissionAllowed()
@@ -90,9 +93,16 @@ func (s *AdmissionService) ShouldAdmitWorkload(ctx context.Context, admissionChe
 	}
 
 	if aggregatedResult.ShouldAdmit() {
-		s.logger.Info("All AdmissionChecks allow admission", "admissionChecks", admissionCheckNames)
+		s.logger.Info(
+			"All AdmissionChecks allow admission",
+			"admissionChecks", admissionCheckNames,
+		)
 	} else {
-		s.logger.Info("Admission denied due to one or more failing checks", "admissionChecks", admissionCheckNames, "firingAlerts", aggregatedResult.GetFiringAlerts())
+		s.logger.Info(
+			"Admission denied due to one or more failing checks",
+			"admissionChecks", admissionCheckNames,
+			"firingAlerts", aggregatedResult.GetFiringAlerts(),
+		)
 	}
 
 	return aggregatedResult, nil
