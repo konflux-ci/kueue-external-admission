@@ -133,10 +133,9 @@ func (r *AdmissionCheckReconciler) parseACConfig(_ *kueue.AdmissionCheck) *Alert
 // updateAdmissionCheckStatus updates the status of an AdmissionCheck
 func (r *AdmissionCheckReconciler) updateAdmissionCheckStatus(ctx context.Context, ac *kueue.AdmissionCheck, active bool, message string) (ctrl.Result, error) {
 	status := metav1.ConditionTrue
-	reason := "Active"
+	reason := kueue.AdmissionCheckActive
 	if !active {
 		status = metav1.ConditionFalse
-		reason = "Inactive"
 	}
 
 	currentCondition := ptr.Deref(apimeta.FindStatusCondition(ac.Status.Conditions, kueue.AdmissionCheckActive), metav1.Condition{})
