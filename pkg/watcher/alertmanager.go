@@ -11,6 +11,8 @@ import (
 	alertclient "github.com/prometheus/alertmanager/api/v2/client"
 	"github.com/prometheus/alertmanager/api/v2/client/alert"
 	"github.com/prometheus/alertmanager/api/v2/models"
+
+	konfluxciv1alpha1 "github.com/konflux-ci/kueue-external-admission/api/konflux-ci.dev/v1alpha1"
 )
 
 // Admitter determines whether admission should be allowed
@@ -18,10 +20,11 @@ type Admitter interface {
 	ShouldAdmit(context.Context) (AdmissionResult, error)
 }
 
-// AlertManagerAdmitter queries AlertManager v2 API to check for active alerts
+// AlertManagerAdmitter implements Admitter using AlertManager API
 type AlertManagerAdmitter struct {
 	client       *alertclient.AlertmanagerAPI
-	alertFilters []string // Alert names or label filters to check for
+	config       *konfluxciv1alpha1.AlertManagerProviderConfig
+	alertFilters []string
 	logger       logr.Logger
 }
 
@@ -29,14 +32,13 @@ var _ Admitter = &AlertManagerAdmitter{}
 
 // NewAlertManagerAdmitter creates a new AlertManager client using the official API v2 client
 func NewAlertManagerAdmitter(
-	alertManagerURL string,
-	alertFilters []string,
+	config *konfluxciv1alpha1.AlertManagerProviderConfig,
 	logger logr.Logger,
 ) (*AlertManagerAdmitter, error) {
 	// Parse the AlertManager URL
-	u, err := url.Parse(alertManagerURL)
+	u, err := url.Parse(config.Connection.URL)
 	if err != nil {
-		return nil, fmt.Errorf("invalid AlertManager URL %q: %w", alertManagerURL, err)
+		return nil, fmt.Errorf("invalid AlertManager URL %q: %w", config.Connection.URL, err)
 	}
 
 	// Create transport config
@@ -47,14 +49,21 @@ func NewAlertManagerAdmitter(
 
 	// Create HTTP transport
 	transport := httptransport.New(transportConfig.Host, transportConfig.BasePath, transportConfig.Schemes)
-	// Set timeout via default transport config (handled by go-openapi runtime)
+	// Note: Timeout is handled by the transport config and runtime
 
-	// Create AlertManager API client
+	// Create the AlertManager API client
 	client := alertclient.New(transport, strfmt.Default)
+
+	// Collect all alert names from all filters
+	var allAlertNames []string
+	for _, filter := range config.AlertFilters {
+		allAlertNames = append(allAlertNames, filter.AlertNames...)
+	}
 
 	return &AlertManagerAdmitter{
 		client:       client,
-		alertFilters: alertFilters,
+		config:       config,
+		alertFilters: allAlertNames,
 		logger:       logger,
 	}, nil
 }

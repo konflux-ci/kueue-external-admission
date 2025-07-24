@@ -82,20 +82,22 @@ func (r *AdmissionCheckReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 
 	// Parse AlertManager configuration from parameters
-	config, err := r.parseACConfig(ctx, ac)
+	externalConfig, err := r.getExternalConfig(ctx, ac)
 	if err != nil {
-		log.Error(err, "failed to parse AdmissionCheck configuration")
-		return r.updateAdmissionCheckStatus(ctx, ac, false, "failed to parse AdmissionCheck configuration: "+err.Error())
+		log.Error(err, "failed to get ExternalAdmissionConfig")
+		return r.updateAdmissionCheckStatus(ctx, ac, false, "failed to get ExternalAdmissionConfig: "+err.Error())
 	}
-	if config == nil {
-		log.Error(nil, "failed to parse AdmissionCheck configuration")
-		return r.updateAdmissionCheckStatus(ctx, ac, false, "failed to parse AdmissionCheck configuration")
+
+	// Validate that we have an AlertManager provider
+	if externalConfig.Spec.Provider.AlertManager == nil {
+		err := fmt.Errorf("no AlertManager provider configured in ExternalAdmissionConfig %s/%s", externalConfig.Namespace, externalConfig.Name)
+		log.Error(err, "missing AlertManager provider")
+		return r.updateAdmissionCheckStatus(ctx, ac, false, err.Error())
 	}
 
 	// Create or update AlertManager admitter
 	admitter, err := watcher.NewAlertManagerAdmitter(
-		config.AlertManager.URL,
-		config.AlertFilters.AlertNames,
+		externalConfig.Spec.Provider.AlertManager,
 		log.WithValues("admissionCheck", req.Name),
 	)
 	if err != nil {
@@ -111,8 +113,8 @@ func (r *AdmissionCheckReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	return r.updateAdmissionCheckStatus(ctx, ac, true, "AlertManager admission check is active")
 }
 
-// parseACConfig parses the AlertManager configuration from AdmissionCheck parameters
-func (r *AdmissionCheckReconciler) parseACConfig(ctx context.Context, ac *kueue.AdmissionCheck) (*AlertManagerAdmissionCheckConfig, error) {
+// getExternalConfig gets the ExternalAdmissionConfig from AdmissionCheck parameters
+func (r *AdmissionCheckReconciler) getExternalConfig(ctx context.Context, ac *kueue.AdmissionCheck) (*konfluxciv1alpha1.ExternalAdmissionConfig, error) {
 	// Check if parameters are specified
 	if ac.Spec.Parameters == nil {
 		return nil, fmt.Errorf("no parameters specified in AdmissionCheck %s/%s - ExternalAdmissionConfig reference required", ac.Namespace, ac.Name)
@@ -133,60 +135,7 @@ func (r *AdmissionCheckReconciler) parseACConfig(ctx context.Context, ac *kueue.
 		return nil, fmt.Errorf("failed to get ExternalAdmissionConfig %s/%s: %w", ac.Namespace, ac.Spec.Parameters.Name, err)
 	}
 
-	// Convert ExternalAdmissionConfig to internal format
-	config, err := r.convertExternalConfig(externalConfig)
-	if err != nil {
-		return nil, fmt.Errorf("failed to convert ExternalAdmissionConfig %s/%s: %w", ac.Namespace, ac.Spec.Parameters.Name, err)
-	}
-	return config, nil
-}
-
-// convertExternalConfig converts ExternalAdmissionConfig to internal AlertManagerAdmissionCheckConfig
-func (r *AdmissionCheckReconciler) convertExternalConfig(external *konfluxciv1alpha1.ExternalAdmissionConfig) (*AlertManagerAdmissionCheckConfig, error) {
-	// Check if AlertManager provider config exists
-	if external.Spec.Provider.AlertManager == nil {
-		return nil, fmt.Errorf("no AlertManager provider configured in ExternalAdmissionConfig %s/%s", external.Namespace, external.Name)
-	}
-
-	alertMgrConfig := external.Spec.Provider.AlertManager
-
-	// Collect all alert names from all filters
-	var allAlertNames []string
-	for _, filter := range alertMgrConfig.AlertFilters {
-		allAlertNames = append(allAlertNames, filter.AlertNames...)
-	}
-
-	config := &AlertManagerAdmissionCheckConfig{
-		AlertManager: AlertManagerConfig{
-			URL: alertMgrConfig.Connection.URL,
-		},
-		AlertFilters: AlertFiltersConfig{
-			AlertNames: allAlertNames,
-		},
-		Polling: PollingConfig{
-			Interval:         30 * time.Second,
-			FailureThreshold: 3,
-		},
-	}
-
-	// Set timeout if specified
-	if alertMgrConfig.Connection.Timeout != nil {
-		config.AlertManager.Timeout = alertMgrConfig.Connection.Timeout.Duration
-	} else {
-		config.AlertManager.Timeout = 10 * time.Second
-	}
-
-	// Set polling interval if specified
-	if alertMgrConfig.Polling.Interval != nil {
-		config.Polling.Interval = alertMgrConfig.Polling.Interval.Duration
-	}
-
-	// Set failure threshold if specified
-	if alertMgrConfig.Polling.FailureThreshold > 0 {
-		config.Polling.FailureThreshold = alertMgrConfig.Polling.FailureThreshold
-	}
-
-	return config, nil
+	return externalConfig, nil
 }
 
 // updateAdmissionCheckStatus updates the status of an AdmissionCheck

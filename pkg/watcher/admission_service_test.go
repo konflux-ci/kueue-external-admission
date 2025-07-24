@@ -11,7 +11,23 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/prometheus/alertmanager/api/v2/models"
+
+	konfluxciv1alpha1 "github.com/konflux-ci/kueue-external-admission/api/konflux-ci.dev/v1alpha1"
 )
+
+// createTestAlertManagerConfig creates a test AlertManagerProviderConfig for testing
+func createTestAlertManagerConfig(url string, alertNames []string) *konfluxciv1alpha1.AlertManagerProviderConfig {
+	return &konfluxciv1alpha1.AlertManagerProviderConfig{
+		Connection: konfluxciv1alpha1.AlertManagerConnectionConfig{
+			URL: url,
+		},
+		AlertFilters: []konfluxciv1alpha1.AlertFiltersConfig{
+			{
+				AlertNames: alertNames,
+			},
+		},
+	}
+}
 
 func TestWatcher(t *testing.T) {
 	RegisterFailHandler(Fail)
@@ -31,7 +47,10 @@ func TestAdmissionService_Creation(t *testing.T) {
 func TestAdmissionService_ConcurrentAccess(t *testing.T) {
 	service, _ := NewAdmissionService(logr.Discard())
 	// Create a test admitter
-	admitter, err := NewAlertManagerAdmitter("http://test", []string{"test-alert"}, logr.Discard())
+	admitter, err := NewAlertManagerAdmitter(
+		createTestAlertManagerConfig("http://test", []string{"test-alert"}),
+		logr.Discard(),
+	)
 	if err != nil {
 		t.Errorf("Expected no error creating admitter, got %v", err)
 	}
@@ -42,16 +61,29 @@ func TestAdmissionService_ConcurrentAccess(t *testing.T) {
 
 	// Test concurrent access
 	for i := 0; i < 10; i++ {
-		go func(i int) {
+		go func() {
 			defer func() { done <- true }()
 
-			// Simulate concurrent operations
-			service.SetAdmitter("key-"+string(rune(i)), admitter)
-			_, exists := service.GetAdmitter("test-key")
-			if !exists {
-				t.Error("Expected to find the admitter during concurrent access")
+			// Test SetAdmitter
+			testAdmitter, err := NewAlertManagerAdmitter(
+				createTestAlertManagerConfig("http://test-concurrent", []string{"test-alert"}),
+				logr.Discard(),
+			)
+			if err != nil {
+				t.Errorf("Expected no error creating test admitter, got %v", err)
+				return
 			}
-		}(i)
+
+			service.SetAdmitter("concurrent-test", testAdmitter)
+
+			// Test retrieving admitter
+			retrievedAdmitter, exists := service.GetAdmitter("test-key")
+			if !exists || retrievedAdmitter == nil {
+				t.Error("Expected to retrieve admitter, got nil or not found")
+			}
+
+			service.RemoveAdmitter("concurrent-test")
+		}()
 	}
 
 	// Wait for all goroutines to complete
@@ -79,63 +111,65 @@ func TestAdmissionService_InterfaceFlexibility(t *testing.T) {
 	defer testServer.Close()
 
 	// Create AlertManager admitter with test server URL
-	alertManagerAdmitter, err := NewAlertManagerAdmitter(testServer.URL, []string{"test-alert"}, logr.Discard())
+	alertManagerAdmitter, err := NewAlertManagerAdmitter(
+		createTestAlertManagerConfig(testServer.URL, []string{"test-alert"}),
+		logr.Discard(),
+	)
 	if err != nil {
-		t.Errorf("Expected no error creating admitter, got %v", err)
+		t.Errorf("Expected no error creating AlertManager admitter, got %v", err)
 	}
 
-	// Add the admitter to the service
-	service.SetAdmitter("test-admitter", alertManagerAdmitter)
+	// Store as Admitter interface
+	service.SetAdmitter("test-key", alertManagerAdmitter)
 
-	// Retrieve using interface
-	admitter, exists := service.GetAdmitter("test-admitter")
-	if !exists {
-		t.Error("Expected to find the admitter")
+	// Retrieve as interface
+	retrievedAdmitter, exists := service.GetAdmitter("test-key")
+	if !exists || retrievedAdmitter == nil {
+		t.Error("Expected to retrieve admitter, got nil or not found")
 	}
 
-	if admitter == nil {
-		t.Error("Expected non-nil admitter")
-	}
-
-	// Verify it implements the interface correctly
-	result, err := admitter.ShouldAdmit(context.Background())
+	// Test the ShouldAdmit method through the interface
+	result, err := retrievedAdmitter.ShouldAdmit(context.Background())
 	if err != nil {
-		t.Errorf("Expected no error from admitter.ShouldAdmit, got %v", err)
+		t.Errorf("Expected no error from ShouldAdmit, got %v", err)
 	}
-	if result == nil {
-		t.Error("Expected non-nil admission result")
+	if !result.ShouldAdmit() {
+		t.Error("Expected workload to be admitted (no alerts), but it was denied")
 	}
 }
 
 func TestAdmissionService_RetrieveMultipleAdmitters(t *testing.T) {
 	service, _ := NewAdmissionService(logr.Discard())
 
-	// Create real admitters instead of MockAdmitter
-	admitter1, err := NewAlertManagerAdmitter("http://test1", []string{"alert1"}, logr.Discard())
+	// Create multiple admitters
+	admitter1, err := NewAlertManagerAdmitter(
+		createTestAlertManagerConfig("http://test1", []string{"alert1"}),
+		logr.Discard(),
+	)
 	if err != nil {
 		t.Errorf("Expected no error creating admitter1, got %v", err)
 	}
-	admitter2, err := NewAlertManagerAdmitter("http://test2", []string{"alert2"}, logr.Discard())
+	admitter2, err := NewAlertManagerAdmitter(
+		createTestAlertManagerConfig("http://test2", []string{"alert2"}),
+		logr.Discard(),
+	)
 	if err != nil {
 		t.Errorf("Expected no error creating admitter2, got %v", err)
 	}
 
-	// Test that we can set and retrieve multiple admitters
-	service.SetAdmitter("admitter1", admitter1)
-	service.SetAdmitter("admitter2", admitter2)
+	// Store admitters
+	service.SetAdmitter("key1", admitter1)
+	service.SetAdmitter("key2", admitter2)
 
-	// Verify both are retrievable
-	retrieved1, exists1 := service.GetAdmitter("admitter1")
-	retrieved2, exists2 := service.GetAdmitter("admitter2")
+	// Retrieve both
+	retrieved1, exists1 := service.GetAdmitter("key1")
+	retrieved2, exists2 := service.GetAdmitter("key2")
 
-	if !exists1 || !exists2 {
-		t.Error("Expected both admitters to be retrievable")
-	}
-	if retrieved1 == nil || retrieved2 == nil {
-		t.Error("Expected non-nil admitters")
+	if !exists1 || !exists2 || retrieved1 == nil || retrieved2 == nil {
+		t.Error("Expected to retrieve both admitters")
 	}
 
-	// Verify different instances
+	// Test that they are different instances
 	if retrieved1 == retrieved2 {
 		t.Error("Expected different admitter instances")
 	}
