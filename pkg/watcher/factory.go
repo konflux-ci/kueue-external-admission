@@ -24,7 +24,6 @@ import (
 	konfluxciv1alpha1 "github.com/konflux-ci/kueue-external-admission/api/konflux-ci.dev/v1alpha1"
 )
 
-
 // AdmitterFactory is a function type for creating admitters
 type AdmitterFactory func(*konfluxciv1alpha1.ExternalAdmissionConfig, logr.Logger) (Admitter, error)
 
