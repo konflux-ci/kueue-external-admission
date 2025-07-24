@@ -27,8 +27,6 @@ type Monitor struct {
 	client           client.Client
 	period           time.Duration
 	logger           logr.Logger
-	stopChan         chan struct{}
-	running          bool
 }
 
 var _ manager.Runnable = &Monitor{}
@@ -47,37 +45,14 @@ func NewMonitor(
 		client:           client,
 		period:           period,
 		logger:           logger,
-		stopChan:         make(chan struct{}),
 	}
 }
 
 // Start implements manager.Runnable interface
 func (m *Monitor) Start(ctx context.Context) error {
-	if m.running {
-		return nil
-	}
-
-	m.running = true
 	m.logger.Info("Starting monitor", "period", m.period)
-
 	m.monitorLoop(ctx)
 	return nil
-}
-
-// Stop stops the alert monitor
-func (m *Monitor) Stop() {
-	if !m.running {
-		return
-	}
-
-	m.logger.Info("Stopping monitor")
-	close(m.stopChan)
-	m.running = false
-}
-
-// IsRunning returns whether the monitor is currently running
-func (m *Monitor) IsRunning() bool {
-	return m.running
 }
 
 // monitorLoop runs the monitoring loop
@@ -92,9 +67,6 @@ func (m *Monitor) monitorLoop(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			m.logger.Info("Monitor stopped due to context cancellation")
-			return
-		case <-m.stopChan:
-			m.logger.Info("Monitor stopped")
 			return
 		case <-ticker.C:
 			m.checkAndEmitEvents(ctx, previousStates)
