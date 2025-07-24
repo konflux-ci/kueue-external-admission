@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 	"net/url"
-	"time"
 
 	"github.com/go-logr/logr"
 	httptransport "github.com/go-openapi/runtime/client"
@@ -46,12 +45,11 @@ func init() {
 
 // admitter implements the watcher.admitter interface using AlertManager API
 type admitter struct {
-	client              *alertclient.AlertmanagerAPI
-	config              *konfluxciv1alpha1.AlertManagerProviderConfig
-	alertFilters        []string
-	logger              logr.Logger
-	lastAdmissionTime   time.Time
-	lastAdmissionResult watcher.AdmissionResult
+	client       *alertclient.AlertmanagerAPI
+	config       *konfluxciv1alpha1.AlertManagerProviderConfig
+	alertFilters []string
+	logger       logr.Logger
+	cache        *watcher.Cache[watcher.AdmissionResult]
 }
 
 var _ watcher.Admitter = &admitter{}
@@ -61,7 +59,6 @@ func NewAdmitter(
 	config *konfluxciv1alpha1.AlertManagerProviderConfig,
 	logger logr.Logger,
 ) (watcher.Admitter, error) {
-	// TODO: Add caching
 	// Parse the AlertManager URL
 	u, err := url.Parse(config.Connection.URL)
 	if err != nil {
@@ -88,30 +85,16 @@ func NewAdmitter(
 	}
 
 	return &admitter{
-		client:            client,
-		config:            config,
-		alertFilters:      allAlertNames,
-		logger:            logger,
-		lastAdmissionTime: time.Time{},
+		client:       client,
+		config:       config,
+		alertFilters: allAlertNames,
+		logger:       logger,
+		cache:        watcher.NewCache[watcher.AdmissionResult](config.CheckTTL.Duration),
 	}, nil
 }
 
 func (a *admitter) ShouldAdmit(ctx context.Context) (watcher.AdmissionResult, error) {
-	if a.lastAdmissionResult != nil &&
-		time.Since(a.lastAdmissionTime) < a.config.CheckTTL.Duration {
-		a.logger.Info("Using cached admission result", "lastAdmissionTime", a.lastAdmissionTime)
-		return a.lastAdmissionResult, nil
-	}
-
-	result, err := a.shouldAdmit(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	a.lastAdmissionResult = result
-	a.lastAdmissionTime = time.Now()
-
-	return result, nil
+	return a.cache.GetOrUpdate(ctx, a.shouldAdmit)
 }
 
 // ShouldAdmit implements watcher.Admitter interface
