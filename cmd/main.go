@@ -41,6 +41,7 @@ import (
 	"github.com/konflux-ci/kueue-external-admission/internal/controller"
 	"github.com/konflux-ci/kueue-external-admission/pkg/watcher"
 
+	konfluxcidevv1alpha1 "github.com/konflux-ci/kueue-external-admission/api/konflux-ci.dev/v1alpha1"
 	// +kubebuilder:scaffold:imports
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 
@@ -56,6 +57,7 @@ var (
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
+	utilruntime.Must(konfluxcidevv1alpha1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 	utilruntime.Must(kueue.AddToScheme(scheme))
 }
