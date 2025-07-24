@@ -4,9 +4,9 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.17.1
-  name: externaladmissionconfigs.konflux-ci.dev.konflux-ci.dev
+  name: externaladmissionconfigs.konflux-ci.dev
 spec:
-  group: konflux-ci.dev.konflux-ci.dev
+  group: konflux-ci.dev
   names:
     kind: ExternalAdmissionConfig
     listKind: ExternalAdmissionConfigList
