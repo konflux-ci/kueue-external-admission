@@ -51,7 +51,7 @@ func NewAdmitter(config *konfluxciv1alpha1.ExternalAdmissionConfig, logger logr.
 		}
 		return nil, fmt.Errorf("alertmanager provider factory not registered")
 	default:
-		return nil, fmt.Errorf("no supported provider configured in ExternalAdmissionConfig %s/%s",
-			config.Namespace, config.Name)
+		return nil, fmt.Errorf("no supported provider configured in ExternalAdmissionConfig %s",
+			config.Name)
 	}
 }

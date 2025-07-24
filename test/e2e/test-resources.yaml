@@ -3,7 +3,6 @@ apiVersion: konflux-ci.dev/v1alpha1
 kind: ExternalAdmissionConfig
 metadata:
   name: test-alertmanager-config
-  namespace: test-ns
 spec:
   provider:
     alertManager:

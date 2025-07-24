@@ -150,8 +150,7 @@ type ExternalAdmissionConfigStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:printcolumn:name="AlertManager URL",type=string,JSONPath=`.spec.provider.alertManager.connection.url`
-// +kubebuilder:printcolumn:name="Filter Count",type=integer,JSONPath=`.spec.provider.alertManager.alertFilters[*]`
+// +kubebuilder:resource:scope=Cluster
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
 // ExternalAdmissionConfig is the Schema for the externaladmissionconfigs API.

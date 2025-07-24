@@ -12,15 +12,9 @@ spec:
     listKind: ExternalAdmissionConfigList
     plural: externaladmissionconfigs
     singular: externaladmissionconfig
-  scope: Namespaced
+  scope: Cluster
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .spec.provider.alertManager.connection.url
-      name: AlertManager URL
-      type: string
-    - jsonPath: .spec.provider.alertManager.alertFilters[*]
-      name: Filter Count
-      type: integer
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date

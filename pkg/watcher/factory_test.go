@@ -46,8 +46,7 @@ func (m *mockTestAdmitter) ShouldAdmit(ctx context.Context) (AdmissionResult, er
 func TestNewAdmitter_AlertManagerProvider(t *testing.T) {
 	config := &konfluxciv1alpha1.ExternalAdmissionConfig{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-config",
-			Namespace: "test-namespace",
+			Name: "test-config",
 		},
 		Spec: konfluxciv1alpha1.ExternalAdmissionConfigSpec{
 			Provider: konfluxciv1alpha1.ProviderConfig{
@@ -81,8 +80,7 @@ func TestNewAdmitter_AlertManagerProvider(t *testing.T) {
 func TestNewAdmitter_NoProviderConfigured(t *testing.T) {
 	config := &konfluxciv1alpha1.ExternalAdmissionConfig{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-config",
-			Namespace: "test-namespace",
+			Name: "test-config",
 		},
 		Spec: konfluxciv1alpha1.ExternalAdmissionConfigSpec{
 			Provider: konfluxciv1alpha1.ProviderConfig{
@@ -100,7 +98,7 @@ func TestNewAdmitter_NoProviderConfigured(t *testing.T) {
 		t.Error("Expected nil admitter when error occurs")
 	}
 
-	expectedErrMsg := "no supported provider configured in ExternalAdmissionConfig test-namespace/test-config"
+	expectedErrMsg := "no supported provider configured in ExternalAdmissionConfig test-config"
 	if err.Error() != expectedErrMsg {
 		t.Errorf("Expected error message %q, got %q", expectedErrMsg, err.Error())
 	}
