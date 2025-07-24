@@ -68,7 +68,10 @@ func TestAdmissionService_InterfaceFlexibility(t *testing.T) {
 		if r.URL.Path == "/alerts" || r.URL.Path == "/api/v2/alerts" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode([]*models.GettableAlert{}) // Empty alerts list
+			if err := json.NewEncoder(w).Encode([]*models.GettableAlert{}); err != nil {
+				http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+				return
+			}
 		} else {
 			w.WriteHeader(http.StatusNotFound)
 		}
