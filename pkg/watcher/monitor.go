@@ -20,8 +20,8 @@ type Lister interface {
 	List(context.Context) ([]client.Object, error)
 }
 
-// AlertMonitor periodically checks alert states and emits events when changes occur
-type AlertMonitor struct {
+// Monitor periodically checks alert states and emits events when changes occur
+type Monitor struct {
 	admissionService *AdmissionService
 	lister           Lister
 	client           client.Client
@@ -31,17 +31,17 @@ type AlertMonitor struct {
 	running          bool
 }
 
-var _ manager.Runnable = &AlertMonitor{}
+var _ manager.Runnable = &Monitor{}
 
-// NewAlertMonitor creates a new alert monitor
-func NewAlertMonitor(
+// NewMonitor creates a new alert monitor
+func NewMonitor(
 	admissionService *AdmissionService,
 	lister Lister,
 	client client.Client,
 	period time.Duration,
 	logger logr.Logger,
-) *AlertMonitor {
-	return &AlertMonitor{
+) *Monitor {
+	return &Monitor{
 		admissionService: admissionService,
 		lister:           lister,
 		client:           client,
@@ -52,36 +52,36 @@ func NewAlertMonitor(
 }
 
 // Start implements manager.Runnable interface
-func (m *AlertMonitor) Start(ctx context.Context) error {
+func (m *Monitor) Start(ctx context.Context) error {
 	if m.running {
 		return nil
 	}
 
 	m.running = true
-	m.logger.Info("Starting alert monitor", "period", m.period)
+	m.logger.Info("Starting monitor", "period", m.period)
 
 	m.monitorLoop(ctx)
 	return nil
 }
 
 // Stop stops the alert monitor
-func (m *AlertMonitor) Stop() {
+func (m *Monitor) Stop() {
 	if !m.running {
 		return
 	}
 
-	m.logger.Info("Stopping alert monitor")
+	m.logger.Info("Stopping monitor")
 	close(m.stopChan)
 	m.running = false
 }
 
 // IsRunning returns whether the monitor is currently running
-func (m *AlertMonitor) IsRunning() bool {
+func (m *Monitor) IsRunning() bool {
 	return m.running
 }
 
 // monitorLoop runs the monitoring loop
-func (m *AlertMonitor) monitorLoop(ctx context.Context) {
+func (m *Monitor) monitorLoop(ctx context.Context) {
 	ticker := time.NewTicker(m.period)
 	defer ticker.Stop()
 
@@ -91,10 +91,10 @@ func (m *AlertMonitor) monitorLoop(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			m.logger.Info("Alert monitor stopped due to context cancellation")
+			m.logger.Info("Monitor stopped due to context cancellation")
 			return
 		case <-m.stopChan:
-			m.logger.Info("Alert monitor stopped")
+			m.logger.Info("Monitor stopped")
 			return
 		case <-ticker.C:
 			m.checkAndEmitEvents(ctx, previousStates)
@@ -103,11 +103,11 @@ func (m *AlertMonitor) monitorLoop(ctx context.Context) {
 }
 
 // checkAndEmitEvents checks current alert states and emits events for changed workloads
-func (m *AlertMonitor) checkAndEmitEvents(ctx context.Context, previousStates map[string]bool) {
+func (m *Monitor) checkAndEmitEvents(ctx context.Context, previousStates map[string]bool) {
 	// Get all workloads that need admission checks
 	workloads, err := m.lister.List(ctx)
 	if err != nil {
-		m.logger.Error(err, "Failed to list workloads for alert monitoring")
+		m.logger.Error(err, "Failed to list workloads")
 		return
 	}
 
@@ -153,7 +153,7 @@ func (m *AlertMonitor) checkAndEmitEvents(ctx context.Context, previousStates ma
 
 		// Compare with previous state and emit event if changed
 		if prevState, existed := previousStates[workloadKey]; !existed || prevState != currentState {
-			m.logger.Info("Alert state changed for workload, emitting reconcile event",
+			m.logger.Info("Admission state changed for workload, emitting reconcile event",
 				"workload", wl.Name,
 				"namespace", wl.Namespace,
 				"previousState", prevState,

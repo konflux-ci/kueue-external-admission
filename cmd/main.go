@@ -317,7 +317,7 @@ func main() {
 	}
 
 	// Create alert monitor to watch for alert state changes
-	alertMonitor := watcher.NewAlertMonitor(
+	alertMonitor := watcher.NewMonitor(
 		admissionService,
 		controller.NewWorkloadLister(mgr.GetClient()),
 		mgr.GetClient(),
