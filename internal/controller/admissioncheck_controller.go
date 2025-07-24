@@ -139,12 +139,20 @@ func (r *AdmissionCheckReconciler) parseACConfig(ctx context.Context, ac *kueue.
 
 // convertExternalConfig converts ExternalAdmissionConfig to internal AlertManagerAdmissionCheckConfig
 func (r *AdmissionCheckReconciler) convertExternalConfig(external *konfluxciv1alpha1.ExternalAdmissionConfig) *AlertManagerAdmissionCheckConfig {
+	// Check if AlertManager provider config exists
+	if external.Spec.Provider.AlertManager == nil {
+		// No AlertManager config provided, use default
+		return r.getDefaultConfig()
+	}
+
+	alertMgrConfig := external.Spec.Provider.AlertManager
+
 	config := &AlertManagerAdmissionCheckConfig{
 		AlertManager: AlertManagerConfig{
-			URL: external.Spec.AlertManager.URL,
+			URL: alertMgrConfig.Connection.URL,
 		},
 		AlertFilters: AlertFiltersConfig{
-			AlertNames: external.Spec.AlertFilters.AlertNames,
+			AlertNames: alertMgrConfig.AlertFilters.AlertNames,
 		},
 		Polling: PollingConfig{
 			Interval:         30 * time.Second,
@@ -153,20 +161,20 @@ func (r *AdmissionCheckReconciler) convertExternalConfig(external *konfluxciv1al
 	}
 
 	// Set timeout if specified
-	if external.Spec.AlertManager.Timeout != nil {
-		config.AlertManager.Timeout = external.Spec.AlertManager.Timeout.Duration
+	if alertMgrConfig.Connection.Timeout != nil {
+		config.AlertManager.Timeout = alertMgrConfig.Connection.Timeout.Duration
 	} else {
 		config.AlertManager.Timeout = 10 * time.Second
 	}
 
 	// Set polling interval if specified
-	if external.Spec.Polling.Interval != nil {
-		config.Polling.Interval = external.Spec.Polling.Interval.Duration
+	if alertMgrConfig.Polling.Interval != nil {
+		config.Polling.Interval = alertMgrConfig.Polling.Interval.Duration
 	}
 
 	// Set failure threshold if specified
-	if external.Spec.Polling.FailureThreshold > 0 {
-		config.Polling.FailureThreshold = external.Spec.Polling.FailureThreshold
+	if alertMgrConfig.Polling.FailureThreshold > 0 {
+		config.Polling.FailureThreshold = alertMgrConfig.Polling.FailureThreshold
 	}
 
 	return config

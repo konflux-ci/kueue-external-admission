@@ -4,27 +4,29 @@ metadata:
   name: alertmanager-config
   namespace: default
 spec:
-  alertManager:
-    url: "http://alertmanager-operated.monitoring.svc.cluster.local:9093"
-    timeout: "10s"
-  alertFilters:
-    alertNames:
-      - "HighCPUUsage"
-      - "HighMemoryUsage"
-      - "NodeNotReady"
-      - "KubernetesPodCrashLooping"
-      - "DiskSpaceRunningLow"
-      - "PrometheusTargetDown"
-    labelSelectors:
-      - name: "severity"
-        value: "critical"
-        operator: "equals"
-      - name: "team"
-        value: "platform|infrastructure"
-        operator: "regex"
-  polling:
-    interval: "30s"
-    failureThreshold: 3
+  provider:
+    alertManager:
+      connection:
+        url: "http://alertmanager-operated.monitoring.svc.cluster.local:9093"
+        timeout: "10s"
+      alertFilters:
+        alertNames:
+          - "HighCPUUsage"
+          - "HighMemoryUsage"
+          - "NodeNotReady"
+          - "KubernetesPodCrashLooping"
+          - "DiskSpaceRunningLow"
+          - "PrometheusTargetDown"
+        labelSelectors:
+          - name: "severity"
+            value: "critical"
+            operator: "equals"
+          - name: "team"
+            value: "platform|infrastructure"
+            operator: "regex"
+      polling:
+        interval: "30s"
+        failureThreshold: 3
 ---
 # Updated AdmissionCheck that references the config
 apiVersion: kueue.x-k8s.io/v1beta1
@@ -37,3 +39,29 @@ spec:
     apiGroup: konflux-ci.dev
     kind: ExternalAdmissionConfig
     name: alertmanager-config
+---
+# Examples showing how future providers could be added:
+# 
+# Webhook provider:
+# apiVersion: konflux-ci.dev/v1alpha1
+# kind: ExternalAdmissionConfig
+# metadata:
+#   name: webhook-config
+# spec:
+#   provider:
+#     webhook:
+#       url: "https://my-admission-webhook.com/check"
+#       timeout: "5s"
+#       headers:
+#         Authorization: "Bearer token"
+#
+# Custom script provider:
+# apiVersion: konflux-ci.dev/v1alpha1
+# kind: ExternalAdmissionConfig
+# metadata:
+#   name: script-config
+# spec:
+#   provider:
+#     customScript:
+#       command: "/usr/local/bin/check-admission.sh"
+#       args: ["--workload", "{{.workload.name}}"]

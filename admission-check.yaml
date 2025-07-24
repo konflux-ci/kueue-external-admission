@@ -8,21 +8,32 @@ spec:
   # For now, the controller uses hardcoded AlertManager configuration
   # Future implementation will parse these parameters:
   # parameters:
-  #   apiVersion: kueue.example.com/v1alpha1
-  #   kind: AlertManagerAdmissionCheckConfig
-  #   alertManager:
-  #     url: "http://alertmanager.monitoring.svc.cluster.local:9093"
-  #     timeout: "10s"
-  #   alertFilters:
-  #     alertNames:
-  #       - "HighCPUUsage"
-  #       - "HighMemoryUsage" 
-  #       - "NodeNotReady"
-  #       - "KubernetesPodCrashLooping"
-  #       - "DiskSpaceRunningLow"
-  #   polling:
-  #     interval: "30s"
-  #     failureThreshold: 3
+  #   apiVersion: konflux-ci.dev/v1alpha1
+  #   kind: ExternalAdmissionConfig
+  #   name: alertmanager-config
+  #
+  # Example ExternalAdmissionConfig:
+  # ---
+  # apiVersion: konflux-ci.dev/v1alpha1
+  # kind: ExternalAdmissionConfig
+  # metadata:
+  #   name: alertmanager-config
+  # spec:
+  #   provider:
+  #     alertManager:
+  #       connection:
+  #         url: "http://alertmanager.monitoring.svc.cluster.local:9093"
+  #         timeout: "10s"
+  #       alertFilters:
+  #         alertNames:
+  #           - "HighCPUUsage"
+  #           - "HighMemoryUsage" 
+  #           - "NodeNotReady"
+  #           - "KubernetesPodCrashLooping"
+  #           - "DiskSpaceRunningLow"
+  #       polling:
+  #         interval: "30s"
+  #         failureThreshold: 3
 
 ---
 # Example workflow demonstrating how event-driven admission works:

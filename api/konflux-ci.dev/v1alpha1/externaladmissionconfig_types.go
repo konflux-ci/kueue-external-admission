@@ -22,8 +22,27 @@ import (
 
 // ExternalAdmissionConfigSpec defines the desired state of ExternalAdmissionConfig.
 type ExternalAdmissionConfigSpec struct {
-	// AlertManager contains the AlertManager configuration
-	AlertManager AlertManagerConfig `json:"alertManager"`
+	// Provider contains the configuration for the admission check provider
+	// Exactly one provider must be configured
+	Provider ProviderConfig `json:"provider"`
+}
+
+// ProviderConfig contains configuration for an admission check provider
+// +kubebuilder:validation:MinProperties=1
+// +kubebuilder:validation:MaxProperties=1
+type ProviderConfig struct {
+	// AlertManager contains AlertManager-specific configuration
+	AlertManager *AlertManagerProviderConfig `json:"alertManager,omitempty"`
+
+	// Future providers can be added here, e.g.:
+	// Webhook *WebhookProviderConfig `json:"webhook,omitempty"`
+	// CustomScript *ScriptProviderConfig `json:"customScript,omitempty"`
+}
+
+// AlertManagerProviderConfig contains AlertManager-specific configuration
+type AlertManagerProviderConfig struct {
+	// Connection contains AlertManager connection details
+	Connection AlertManagerConnectionConfig `json:"connection"`
 
 	// AlertFilters contains the configuration for filtering alerts
 	AlertFilters AlertFiltersConfig `json:"alertFilters"`
@@ -32,8 +51,8 @@ type ExternalAdmissionConfigSpec struct {
 	Polling PollingConfig `json:"polling,omitempty"`
 }
 
-// AlertManagerConfig contains AlertManager connection details
-type AlertManagerConfig struct {
+// AlertManagerConnectionConfig contains AlertManager connection details
+type AlertManagerConnectionConfig struct {
 	// URL is the AlertManager API endpoint
 	// +kubebuilder:validation:Required
 	URL string `json:"url"`
@@ -130,8 +149,8 @@ type ExternalAdmissionConfigStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:printcolumn:name="AlertManager URL",type=string,JSONPath=`.spec.alertManager.url`
-// +kubebuilder:printcolumn:name="Alert Count",type=integer,JSONPath=`.spec.alertFilters.alertNames[*]`
+// +kubebuilder:printcolumn:name="AlertManager URL",type=string,JSONPath=`.spec.provider.alertManager.connection.url`
+// +kubebuilder:printcolumn:name="Alert Count",type=integer,JSONPath=`.spec.provider.alertManager.alertFilters.alertNames[*]`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
 // ExternalAdmissionConfig is the Schema for the externaladmissionconfigs API.
