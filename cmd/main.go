@@ -47,6 +47,9 @@ import (
 
 	"k8s.io/utils/clock"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
+
+	// Import providers to register their factories
+	_ "github.com/konflux-ci/kueue-external-admission/pkg/providers/all"
 )
 
 var (

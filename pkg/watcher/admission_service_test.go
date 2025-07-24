@@ -8,30 +8,38 @@ import (
 	"testing"
 
 	"github.com/go-logr/logr"
-	. "github.com/onsi/ginkgo/v2"
-	. "github.com/onsi/gomega"
 	"github.com/prometheus/alertmanager/api/v2/models"
-
-	konfluxciv1alpha1 "github.com/konflux-ci/kueue-external-admission/api/konflux-ci.dev/v1alpha1"
 )
 
-// createTestAlertManagerConfig creates a test AlertManagerProviderConfig for testing
-func createTestAlertManagerConfig(url string, alertNames []string) *konfluxciv1alpha1.AlertManagerProviderConfig {
-	return &konfluxciv1alpha1.AlertManagerProviderConfig{
-		Connection: konfluxciv1alpha1.AlertManagerConnectionConfig{
-			URL: url,
-		},
-		AlertFilters: []konfluxciv1alpha1.AlertFiltersConfig{
-			{
-				AlertNames: alertNames,
-			},
-		},
-	}
+// mockAdmitter is a simple mock implementation of the Admitter interface for testing
+type mockAdmitter struct {
+	shouldAdmit bool
+	details     map[string][]string
+	err         error
 }
 
-func TestWatcher(t *testing.T) {
-	RegisterFailHandler(Fail)
-	RunSpecs(t, "Watcher Suite")
+func (m *mockAdmitter) ShouldAdmit(ctx context.Context) (AdmissionResult, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+
+	builder := NewAdmissionResult()
+	if !m.shouldAdmit {
+		builder.SetAdmissionDenied()
+	}
+
+	for key, values := range m.details {
+		builder.AddProviderDetails(key, values)
+	}
+
+	return builder.Build(), nil
+}
+
+func newMockAdmitter(shouldAdmit bool, details map[string][]string) *mockAdmitter {
+	return &mockAdmitter{
+		shouldAdmit: shouldAdmit,
+		details:     details,
+	}
 }
 
 func TestAdmissionService_Creation(t *testing.T) {
@@ -47,13 +55,7 @@ func TestAdmissionService_Creation(t *testing.T) {
 func TestAdmissionService_ConcurrentAccess(t *testing.T) {
 	service, _ := NewAdmissionService(logr.Discard())
 	// Create a test admitter
-	admitter, err := NewAlertManagerAdmitter(
-		createTestAlertManagerConfig("http://test", []string{"test-alert"}),
-		logr.Discard(),
-	)
-	if err != nil {
-		t.Errorf("Expected no error creating admitter, got %v", err)
-	}
+	admitter := newMockAdmitter(true, map[string][]string{"test": {"detail1"}})
 
 	service.SetAdmitter("test-key", admitter)
 
@@ -65,15 +67,7 @@ func TestAdmissionService_ConcurrentAccess(t *testing.T) {
 			defer func() { done <- true }()
 
 			// Test SetAdmitter
-			testAdmitter, err := NewAlertManagerAdmitter(
-				createTestAlertManagerConfig("http://test-concurrent", []string{"test-alert"}),
-				logr.Discard(),
-			)
-			if err != nil {
-				t.Errorf("Expected no error creating test admitter, got %v", err)
-				return
-			}
-
+			testAdmitter := newMockAdmitter(true, map[string][]string{"concurrent": {"detail1"}})
 			service.SetAdmitter("concurrent-test", testAdmitter)
 
 			// Test retrieving admitter
@@ -110,17 +104,11 @@ func TestAdmissionService_InterfaceFlexibility(t *testing.T) {
 	}))
 	defer testServer.Close()
 
-	// Create AlertManager admitter with test server URL
-	alertManagerAdmitter, err := NewAlertManagerAdmitter(
-		createTestAlertManagerConfig(testServer.URL, []string{"test-alert"}),
-		logr.Discard(),
-	)
-	if err != nil {
-		t.Errorf("Expected no error creating AlertManager admitter, got %v", err)
-	}
+	// Create mock admitter
+	mockAdmitter := newMockAdmitter(true, map[string][]string{})
 
 	// Store as Admitter interface
-	service.SetAdmitter("test-key", alertManagerAdmitter)
+	service.SetAdmitter("test-key", mockAdmitter)
 
 	// Retrieve as interface
 	retrievedAdmitter, exists := service.GetAdmitter("test-key")
@@ -142,20 +130,8 @@ func TestAdmissionService_RetrieveMultipleAdmitters(t *testing.T) {
 	service, _ := NewAdmissionService(logr.Discard())
 
 	// Create multiple admitters
-	admitter1, err := NewAlertManagerAdmitter(
-		createTestAlertManagerConfig("http://test1", []string{"alert1"}),
-		logr.Discard(),
-	)
-	if err != nil {
-		t.Errorf("Expected no error creating admitter1, got %v", err)
-	}
-	admitter2, err := NewAlertManagerAdmitter(
-		createTestAlertManagerConfig("http://test2", []string{"alert2"}),
-		logr.Discard(),
-	)
-	if err != nil {
-		t.Errorf("Expected no error creating admitter2, got %v", err)
-	}
+	admitter1 := newMockAdmitter(true, map[string][]string{"provider1": {"detail1"}})
+	admitter2 := newMockAdmitter(false, map[string][]string{"provider2": {"detail2"}})
 
 	// Store admitters
 	service.SetAdmitter("key1", admitter1)

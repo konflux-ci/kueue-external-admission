@@ -1,4 +1,20 @@
-package watcher
+/*
+Copyright 2024.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package alertmanager
 
 import (
 	"context"
@@ -13,28 +29,35 @@ import (
 	"github.com/prometheus/alertmanager/api/v2/models"
 
 	konfluxciv1alpha1 "github.com/konflux-ci/kueue-external-admission/api/konflux-ci.dev/v1alpha1"
+	"github.com/konflux-ci/kueue-external-admission/pkg/watcher"
 )
 
-// Admitter determines whether admission should be allowed
-type Admitter interface {
-	ShouldAdmit(context.Context) (AdmissionResult, error)
+func init() {
+	// Register this provider's factory with the watcher package
+	watcher.RegisterProviderFactory("alertmanager",
+		func(config *konfluxciv1alpha1.ExternalAdmissionConfig, logger logr.Logger) (watcher.Admitter, error) {
+			if config.Spec.Provider.AlertManager == nil {
+				return nil, fmt.Errorf("AlertManager provider config is nil")
+			}
+			return NewAdmitter(config.Spec.Provider.AlertManager, logger)
+		})
 }
 
-// AlertManagerAdmitter implements Admitter using AlertManager API
-type AlertManagerAdmitter struct {
+// Admitter implements the watcher.Admitter interface using AlertManager API
+type Admitter struct {
 	client       *alertclient.AlertmanagerAPI
 	config       *konfluxciv1alpha1.AlertManagerProviderConfig
 	alertFilters []string
 	logger       logr.Logger
 }
 
-var _ Admitter = &AlertManagerAdmitter{}
+var _ watcher.Admitter = &Admitter{}
 
-// NewAlertManagerAdmitter creates a new AlertManager client using the official API v2 client
-func NewAlertManagerAdmitter(
+// NewAdmitter creates a new AlertManager client using the official API v2 client
+func NewAdmitter(
 	config *konfluxciv1alpha1.AlertManagerProviderConfig,
 	logger logr.Logger,
-) (*AlertManagerAdmitter, error) {
+) (*Admitter, error) {
 	// Parse the AlertManager URL
 	u, err := url.Parse(config.Connection.URL)
 	if err != nil {
@@ -60,7 +83,7 @@ func NewAlertManagerAdmitter(
 		allAlertNames = append(allAlertNames, filter.AlertNames...)
 	}
 
-	return &AlertManagerAdmitter{
+	return &Admitter{
 		client:       client,
 		config:       config,
 		alertFilters: allAlertNames,
@@ -68,13 +91,10 @@ func NewAlertManagerAdmitter(
 	}, nil
 }
 
-// ShouldAdmit implements Admitter interface
+// ShouldAdmit implements watcher.Admitter interface
 // Returns an AdmissionResult indicating whether to admit and any firing alerts
-func (a *AlertManagerAdmitter) ShouldAdmit(ctx context.Context) (AdmissionResult, error) {
-	result := &defaultAdmissionResult{
-		shouldAdmit:     true,
-		providerDetails: make(map[string][]string),
-	}
+func (a *Admitter) ShouldAdmit(ctx context.Context) (watcher.AdmissionResult, error) {
+	builder := watcher.NewAdmissionResult()
 
 	alerts, err := a.getActiveAlerts(ctx)
 	if err != nil {
@@ -85,16 +105,17 @@ func (a *AlertManagerAdmitter) ShouldAdmit(ctx context.Context) (AdmissionResult
 	// If no alert filters are specified, admit by default
 	if len(a.alertFilters) == 0 {
 		a.logger.Info("No alert filters configured, admitting by default")
-		return result, nil
+		return builder.Build(), nil
 	}
 
 	// Check if any alerts are firing
 	firingAlerts := a.findFiringAlerts(alerts)
 	if len(firingAlerts) > 0 {
 		alertNames := a.getAlertNames(firingAlerts)
-		result.addProviderDetails("alertmanager", alertNames)
-		result.setAdmissionDenied()
+		builder.AddProviderDetails("alertmanager", alertNames).SetAdmissionDenied()
 	}
+
+	result := builder.Build()
 
 	a.logger.V(1).Info("AlertManager admission check completed",
 		"shouldAdmit", result.ShouldAdmit(),
@@ -105,7 +126,7 @@ func (a *AlertManagerAdmitter) ShouldAdmit(ctx context.Context) (AdmissionResult
 }
 
 // getActiveAlerts queries the AlertManager v2 API for active alerts using the official client
-func (a *AlertManagerAdmitter) getActiveAlerts(ctx context.Context) ([]*models.GettableAlert, error) {
+func (a *Admitter) getActiveAlerts(ctx context.Context) ([]*models.GettableAlert, error) {
 	params := alert.NewGetAlertsParamsWithContext(ctx).WithDefaults()
 
 	// Query alerts using the official client
@@ -118,7 +139,7 @@ func (a *AlertManagerAdmitter) getActiveAlerts(ctx context.Context) ([]*models.G
 }
 
 // findFiringAlerts filters alerts to find those that are currently firing and match our filters
-func (a *AlertManagerAdmitter) findFiringAlerts(alerts []*models.GettableAlert) []*models.GettableAlert {
+func (a *Admitter) findFiringAlerts(alerts []*models.GettableAlert) []*models.GettableAlert {
 	var firingAlerts []*models.GettableAlert
 
 	for _, alertPtr := range alerts {
@@ -141,7 +162,7 @@ func (a *AlertManagerAdmitter) findFiringAlerts(alerts []*models.GettableAlert) 
 }
 
 // matchesFilters checks if an alert matches any of the configured filters
-func (a *AlertManagerAdmitter) matchesFilters(alert *models.GettableAlert) bool {
+func (a *Admitter) matchesFilters(alert *models.GettableAlert) bool {
 	if alert.Labels == nil {
 		return false
 	}
@@ -160,7 +181,7 @@ func (a *AlertManagerAdmitter) matchesFilters(alert *models.GettableAlert) bool 
 }
 
 // getAlertNames extracts alert names from alerts for logging
-func (a *AlertManagerAdmitter) getAlertNames(alerts []*models.GettableAlert) []string {
+func (a *Admitter) getAlertNames(alerts []*models.GettableAlert) []string {
 	var names []string
 	for _, alert := range alerts {
 		if alert.Labels != nil {
@@ -173,7 +194,7 @@ func (a *AlertManagerAdmitter) getAlertNames(alerts []*models.GettableAlert) []s
 }
 
 // GetFiringAlerts returns the names of currently firing alerts that match our filters
-func (a *AlertManagerAdmitter) GetFiringAlerts(ctx context.Context) ([]string, error) {
+func (a *Admitter) GetFiringAlerts(ctx context.Context) ([]string, error) {
 	alerts, err := a.getActiveAlerts(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query alerts: %w", err)
@@ -192,7 +213,7 @@ func (a *AlertManagerAdmitter) GetFiringAlerts(ctx context.Context) ([]string, e
 }
 
 // getAlertName extracts a meaningful name for the alert
-func (a *AlertManagerAdmitter) getAlertName(alert *models.GettableAlert) string {
+func (a *Admitter) getAlertName(alert *models.GettableAlert) string {
 	if alert.Labels == nil {
 		return "unknown-alert"
 	}

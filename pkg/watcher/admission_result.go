@@ -6,42 +6,71 @@ type AdmissionResult interface {
 	GetProviderDetails() map[string][]string
 }
 
-// defaultAdmissionResult is the default implementation of AdmissionResult
-type defaultAdmissionResult struct {
-	shouldAdmit     bool
-	providerDetails map[string][]string // admissionCheckName -> list of provider-specific details (e.g., alert names)
+// AdmissionResultBuilder allows providers to construct AdmissionResult instances
+type AdmissionResultBuilder interface {
+	SetAdmissionDenied() AdmissionResultBuilder
+	SetAdmissionAllowed() AdmissionResultBuilder
+	AddProviderDetails(checkName string, details []string) AdmissionResultBuilder
+	Build() AdmissionResult
 }
 
-// NewAdmissionResult creates a new AdmissionResult with default values
-func NewAdmissionResult() *defaultAdmissionResult {
-	return &defaultAdmissionResult{
+// admissionResultBuilder is the builder implementation
+type admissionResultBuilder struct {
+	shouldAdmit     bool
+	providerDetails map[string][]string
+}
+
+// admissionResult is the immutable result returned by Build()
+type admissionResult struct {
+	shouldAdmit     bool
+	providerDetails map[string][]string
+}
+
+// NewAdmissionResult creates a new AdmissionResultBuilder with default values
+func NewAdmissionResult() AdmissionResultBuilder {
+	return &admissionResultBuilder{
 		shouldAdmit:     true,
 		providerDetails: make(map[string][]string),
 	}
 }
 
-// ShouldAdmit returns whether the workload should be admitted
-func (r *defaultAdmissionResult) ShouldAdmit() bool {
+// Builder methods - return the builder for method chaining
+func (b *admissionResultBuilder) SetAdmissionDenied() AdmissionResultBuilder {
+	b.shouldAdmit = false
+	return b
+}
+
+func (b *admissionResultBuilder) SetAdmissionAllowed() AdmissionResultBuilder {
+	b.shouldAdmit = true
+	return b
+}
+
+func (b *admissionResultBuilder) AddProviderDetails(checkName string, details []string) AdmissionResultBuilder {
+	if len(details) > 0 {
+		b.providerDetails[checkName] = details
+	}
+	return b
+}
+
+// Build creates the final immutable AdmissionResult
+func (b *admissionResultBuilder) Build() AdmissionResult {
+	// Create a copy of the provider details to ensure immutability
+	detailsCopy := make(map[string][]string)
+	for k, v := range b.providerDetails {
+		detailsCopy[k] = append([]string(nil), v...)
+	}
+
+	return &admissionResult{
+		shouldAdmit:     b.shouldAdmit,
+		providerDetails: detailsCopy,
+	}
+}
+
+// AdmissionResult implementation
+func (r *admissionResult) ShouldAdmit() bool {
 	return r.shouldAdmit
 }
 
-// GetProviderDetails returns the map of provider-specific details per admission check
-func (r *defaultAdmissionResult) GetProviderDetails() map[string][]string {
+func (r *admissionResult) GetProviderDetails() map[string][]string {
 	return r.providerDetails
-}
-
-// setAdmissionDenied marks the admission as denied
-func (r *defaultAdmissionResult) setAdmissionDenied() {
-	r.shouldAdmit = false
-}
-
-func (r *defaultAdmissionResult) setAdmissionAllowed() {
-	r.shouldAdmit = true
-}
-
-// addProviderDetails adds provider-specific details for a specific admission check
-func (r *defaultAdmissionResult) addProviderDetails(checkName string, details []string) {
-	if len(details) > 0 {
-		r.providerDetails[checkName] = details
-	}
 }

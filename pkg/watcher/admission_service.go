@@ -9,6 +9,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 )
 
+// Admitter determines whether admission should be allowed
+type Admitter interface {
+	ShouldAdmit(context.Context) (AdmissionResult, error)
+}
+
 // AdmissionService manages Admitters for different AdmissionChecks
 // Uses sync.Map internally but exposes only type-safe wrapper methods
 // This ensures consistent logging and proper type safety
@@ -56,7 +61,7 @@ func (s *AdmissionService) GetAdmitter(admissionCheckName string) (Admitter, boo
 func (s *AdmissionService) ShouldAdmitWorkload(ctx context.Context, checkNames []string) (AdmissionResult, error) {
 	s.logger.V(1).Info("Checking admission for workload", "checks", checkNames)
 
-	aggregatedResult := NewAdmissionResult()
+	builder := NewAdmissionResult()
 	hasAnyCheck := false
 
 	for _, checkName := range checkNames {
@@ -69,13 +74,13 @@ func (s *AdmissionService) ShouldAdmitWorkload(ctx context.Context, checkNames [
 			}
 
 			if !result.ShouldAdmit() {
-				aggregatedResult.setAdmissionDenied()
+				builder.SetAdmissionDenied()
 			}
 
 			// Aggregate provider details from all checks
 			for source, details := range result.GetProviderDetails() {
 				key := fmt.Sprintf("%s.%s", checkName, source)
-				aggregatedResult.addProviderDetails(key, details)
+				builder.AddProviderDetails(key, details)
 			}
 		}
 	}
@@ -83,14 +88,16 @@ func (s *AdmissionService) ShouldAdmitWorkload(ctx context.Context, checkNames [
 	// If no admission checks were found, allow admission
 	if !hasAnyCheck {
 		s.logger.V(1).Info("No admission checks found, allowing admission")
-		aggregatedResult.setAdmissionAllowed()
+		builder.SetAdmissionAllowed()
 	}
 
+	finalResult := builder.Build()
+
 	s.logger.V(1).Info("Workload admission decision completed",
-		"shouldAdmit", aggregatedResult.ShouldAdmit(),
-		"providerDetails", aggregatedResult.GetProviderDetails(),
+		"shouldAdmit", finalResult.ShouldAdmit(),
+		"providerDetails", finalResult.GetProviderDetails(),
 		"checksEvaluated", len(checkNames),
 	)
 
-	return aggregatedResult, nil
+	return finalResult, nil
 }

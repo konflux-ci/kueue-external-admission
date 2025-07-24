@@ -24,6 +24,18 @@ import (
 	konfluxciv1alpha1 "github.com/konflux-ci/kueue-external-admission/api/konflux-ci.dev/v1alpha1"
 )
 
+
+// AdmitterFactory is a function type for creating admitters
+type AdmitterFactory func(*konfluxciv1alpha1.ExternalAdmissionConfig, logr.Logger) (Admitter, error)
+
+// providerFactories holds the registered provider factories
+var providerFactories = make(map[string]AdmitterFactory)
+
+// RegisterProviderFactory registers a factory function for a provider type
+func RegisterProviderFactory(providerType string, factory AdmitterFactory) {
+	providerFactories[providerType] = factory
+}
+
 // NewAdmitter creates an Admitter based on the provider configuration in ExternalAdmissionConfig
 func NewAdmitter(config *konfluxciv1alpha1.ExternalAdmissionConfig, logger logr.Logger) (Admitter, error) {
 	if config == nil {
@@ -32,10 +44,13 @@ func NewAdmitter(config *konfluxciv1alpha1.ExternalAdmissionConfig, logger logr.
 
 	provider := config.Spec.Provider
 
-	// Check which provider is configured
+	// Check which provider is configured and use registered factory
 	switch {
 	case provider.AlertManager != nil:
-		return NewAlertManagerAdmitter(provider.AlertManager, logger)
+		if factory, exists := providerFactories["alertmanager"]; exists {
+			return factory(config, logger)
+		}
+		return nil, fmt.Errorf("alertmanager provider factory not registered")
 	default:
 		return nil, fmt.Errorf("no supported provider configured in ExternalAdmissionConfig %s/%s",
 			config.Namespace, config.Name)
