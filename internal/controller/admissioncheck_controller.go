@@ -91,7 +91,7 @@ func (r *AdmissionCheckReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 
 	// Parse AlertManager configuration from parameters
-	externalConfig, err := r.getExternalConfig(ctx, ac)
+	externalConfig, err := r.acHelper.ConfigFromRef(ctx, ac.Spec.Parameters)
 	if err != nil {
 		log.Error(err, "failed to get ExternalAdmissionConfig")
 		return r.updateAdmissionCheckStatus(ctx, ac, false, "failed to get ExternalAdmissionConfig: "+err.Error())
@@ -120,31 +120,6 @@ func (r *AdmissionCheckReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	// Update AdmissionCheck status to Active
 	return r.updateAdmissionCheckStatus(ctx, ac, true, "AlertManager admission check is active")
-}
-
-// getExternalConfig gets the ExternalAdmissionConfig from AdmissionCheck parameters
-func (r *AdmissionCheckReconciler) getExternalConfig(ctx context.Context, ac *kueue.AdmissionCheck) (*konfluxciv1alpha1.ExternalAdmissionConfig, error) {
-	// Check if parameters are specified
-	if ac.Spec.Parameters == nil {
-		return nil, fmt.Errorf("no parameters specified in AdmissionCheck %s/%s - ExternalAdmissionConfig reference required", ac.Namespace, ac.Name)
-	}
-
-	// Try to get the ExternalAdmissionConfig
-	configKey := client.ObjectKey{
-		Name:      ac.Spec.Parameters.Name,
-		Namespace: ac.Namespace, // Use the same namespace as the AdmissionCheck
-	}
-
-	externalConfig := &konfluxciv1alpha1.ExternalAdmissionConfig{}
-	if err := r.Get(ctx, configKey, externalConfig); err != nil {
-		if client.IgnoreNotFound(err) == nil {
-			// Config not found
-			return nil, fmt.Errorf("ExternalAdmissionConfig %s/%s not found", ac.Namespace, ac.Spec.Parameters.Name)
-		}
-		return nil, fmt.Errorf("failed to get ExternalAdmissionConfig %s/%s: %w", ac.Namespace, ac.Spec.Parameters.Name, err)
-	}
-
-	return externalConfig, nil
 }
 
 // updateAdmissionCheckStatus updates the status of an AdmissionCheck
