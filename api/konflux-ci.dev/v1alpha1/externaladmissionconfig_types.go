@@ -44,8 +44,9 @@ type AlertManagerProviderConfig struct {
 	// Connection contains AlertManager connection details
 	Connection AlertManagerConnectionConfig `json:"connection"`
 
-	// AlertFilters contains the configuration for filtering alerts
-	AlertFilters AlertFiltersConfig `json:"alertFilters"`
+	// AlertFilters contains the list of alert filtering configurations
+	// Each filter can be applied to different subsets of workloads
+	AlertFilters []AlertFiltersConfig `json:"alertFilters"`
 
 	// Polling contains the configuration for polling intervals
 	Polling PollingConfig `json:"polling,omitempty"`
@@ -150,7 +151,7 @@ type ExternalAdmissionConfigStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="AlertManager URL",type=string,JSONPath=`.spec.provider.alertManager.connection.url`
-// +kubebuilder:printcolumn:name="Alert Count",type=integer,JSONPath=`.spec.provider.alertManager.alertFilters.alertNames[*]`
+// +kubebuilder:printcolumn:name="Filter Count",type=integer,JSONPath=`.spec.provider.alertManager.alertFilters[*]`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
 // ExternalAdmissionConfig is the Schema for the externaladmissionconfigs API.

@@ -11,10 +11,10 @@ spec:
         url: "http://alertmanager-operated.monitoring.svc.cluster.local:9093"
         timeout: "10s"
       alertFilters:
-        alertNames:
-          - "TestAlert"
-          - "HighCPUUsage" 
-          - "HighMemoryUsage"
+        - alertNames:
+            - "TestAlert"
+            - "HighCPUUsage" 
+            - "HighMemoryUsage"
       polling:
         interval: "30s"
         failureThreshold: 3

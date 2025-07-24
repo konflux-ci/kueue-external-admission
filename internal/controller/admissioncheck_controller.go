@@ -147,12 +147,18 @@ func (r *AdmissionCheckReconciler) convertExternalConfig(external *konfluxciv1al
 
 	alertMgrConfig := external.Spec.Provider.AlertManager
 
+	// Collect all alert names from all filters
+	var allAlertNames []string
+	for _, filter := range alertMgrConfig.AlertFilters {
+		allAlertNames = append(allAlertNames, filter.AlertNames...)
+	}
+
 	config := &AlertManagerAdmissionCheckConfig{
 		AlertManager: AlertManagerConfig{
 			URL: alertMgrConfig.Connection.URL,
 		},
 		AlertFilters: AlertFiltersConfig{
-			AlertNames: alertMgrConfig.AlertFilters.AlertNames,
+			AlertNames: allAlertNames,
 		},
 		Polling: PollingConfig{
 			Interval:         30 * time.Second,

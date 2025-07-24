@@ -10,20 +10,22 @@ spec:
         url: "http://alertmanager-operated.monitoring.svc.cluster.local:9093"
         timeout: "10s"
       alertFilters:
-        alertNames:
-          - "HighCPUUsage"
-          - "HighMemoryUsage"
-          - "NodeNotReady"
-          - "KubernetesPodCrashLooping"
-          - "DiskSpaceRunningLow"
-          - "PrometheusTargetDown"
-        labelSelectors:
-          - name: "severity"
-            value: "critical"
-            operator: "equals"
-          - name: "team"
-            value: "platform|infrastructure"
-            operator: "regex"
+        - alertNames:
+            - "HighCPUUsage"
+            - "HighMemoryUsage"
+            - "NodeNotReady"
+          labelSelectors:
+            - name: "severity"
+              value: "critical"
+              operator: "equals"
+        - alertNames:
+            - "KubernetesPodCrashLooping"
+            - "DiskSpaceRunningLow"
+            - "PrometheusTargetDown"
+          labelSelectors:
+            - name: "team"
+              value: "platform|infrastructure"
+              operator: "regex"
       polling:
         interval: "30s"
         failureThreshold: 3

@@ -25,12 +25,17 @@ spec:
   #         url: "http://alertmanager.monitoring.svc.cluster.local:9093"
   #         timeout: "10s"
   #       alertFilters:
-  #         alertNames:
-  #           - "HighCPUUsage"
-  #           - "HighMemoryUsage" 
-  #           - "NodeNotReady"
-  #           - "KubernetesPodCrashLooping"
-  #           - "DiskSpaceRunningLow"
+  #         - alertNames:
+  #             - "HighCPUUsage"
+  #             - "HighMemoryUsage" 
+  #             - "NodeNotReady"
+  #         - alertNames:
+  #             - "KubernetesPodCrashLooping"
+  #             - "DiskSpaceRunningLow"
+  #           # Future: workloadSelector for applying to specific workloads
+  #           # workloadSelector:
+  #           #   matchLabels:
+  #           #     team: "backend"
   #       polling:
   #         interval: "30s"
   #         failureThreshold: 3
