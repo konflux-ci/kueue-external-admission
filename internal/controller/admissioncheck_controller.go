@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -114,8 +115,7 @@ func (r *AdmissionCheckReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 func (r *AdmissionCheckReconciler) parseACConfig(ctx context.Context, ac *kueue.AdmissionCheck) (*AlertManagerAdmissionCheckConfig, error) {
 	// Check if parameters are specified
 	if ac.Spec.Parameters == nil {
-		// Use default configuration if no parameters are provided
-		return r.getDefaultConfig(), nil
+		return nil, fmt.Errorf("no parameters specified in AdmissionCheck %s/%s - ExternalAdmissionConfig reference required", ac.Namespace, ac.Name)
 	}
 
 	// Try to get the ExternalAdmissionConfig
@@ -127,22 +127,25 @@ func (r *AdmissionCheckReconciler) parseACConfig(ctx context.Context, ac *kueue.
 	externalConfig := &konfluxciv1alpha1.ExternalAdmissionConfig{}
 	if err := r.Get(ctx, configKey, externalConfig); err != nil {
 		if client.IgnoreNotFound(err) == nil {
-			// Config not found, use default configuration
-			return r.getDefaultConfig(), nil
+			// Config not found
+			return nil, fmt.Errorf("ExternalAdmissionConfig %s/%s not found", ac.Namespace, ac.Spec.Parameters.Name)
 		}
-		return nil, err
+		return nil, fmt.Errorf("failed to get ExternalAdmissionConfig %s/%s: %w", ac.Namespace, ac.Spec.Parameters.Name, err)
 	}
 
 	// Convert ExternalAdmissionConfig to internal format
-	return r.convertExternalConfig(externalConfig), nil
+	config, err := r.convertExternalConfig(externalConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert ExternalAdmissionConfig %s/%s: %w", ac.Namespace, ac.Spec.Parameters.Name, err)
+	}
+	return config, nil
 }
 
 // convertExternalConfig converts ExternalAdmissionConfig to internal AlertManagerAdmissionCheckConfig
-func (r *AdmissionCheckReconciler) convertExternalConfig(external *konfluxciv1alpha1.ExternalAdmissionConfig) *AlertManagerAdmissionCheckConfig {
+func (r *AdmissionCheckReconciler) convertExternalConfig(external *konfluxciv1alpha1.ExternalAdmissionConfig) (*AlertManagerAdmissionCheckConfig, error) {
 	// Check if AlertManager provider config exists
 	if external.Spec.Provider.AlertManager == nil {
-		// No AlertManager config provided, use default
-		return r.getDefaultConfig()
+		return nil, fmt.Errorf("no AlertManager provider configured in ExternalAdmissionConfig %s/%s", external.Namespace, external.Name)
 	}
 
 	alertMgrConfig := external.Spec.Provider.AlertManager
@@ -183,30 +186,7 @@ func (r *AdmissionCheckReconciler) convertExternalConfig(external *konfluxciv1al
 		config.Polling.FailureThreshold = alertMgrConfig.Polling.FailureThreshold
 	}
 
-	return config
-}
-
-// getDefaultConfig returns a default configuration when no external config is available
-func (r *AdmissionCheckReconciler) getDefaultConfig() *AlertManagerAdmissionCheckConfig {
-	return &AlertManagerAdmissionCheckConfig{
-		AlertManager: AlertManagerConfig{
-			URL:     "http://alertmanager-operated.monitoring.svc.cluster.local:9093",
-			Timeout: 10 * time.Second,
-		},
-		AlertFilters: AlertFiltersConfig{
-			AlertNames: []string{
-				"HighCPUUsage",
-				"HighMemoryUsage",
-				"NodeNotReady",
-				"KubernetesPodCrashLooping",
-				"DiskSpaceRunningLow",
-			},
-		},
-		Polling: PollingConfig{
-			Interval:         30 * time.Second,
-			FailureThreshold: 3,
-		},
-	}
+	return config, nil
 }
 
 // updateAdmissionCheckStatus updates the status of an AdmissionCheck

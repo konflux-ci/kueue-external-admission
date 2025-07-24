@@ -4,15 +4,14 @@ metadata:
   name: sample-admission-check
 spec:
   controllerName: konflux-ci.dev/kueue-external-admission
-  # TODO: Implement proper parameter parsing in the controller
-  # For now, the controller uses hardcoded AlertManager configuration
-  # Future implementation will parse these parameters:
-  # parameters:
-  #   apiVersion: konflux-ci.dev/v1alpha1
-  #   kind: ExternalAdmissionConfig
-  #   name: alertmanager-config
-  #
-  # Example ExternalAdmissionConfig:
+  # REQUIRED: Must specify parameters referencing an ExternalAdmissionConfig
+  # The controller no longer supports default configurations
+  parameters:
+    apiGroup: konflux-ci.dev
+    kind: ExternalAdmissionConfig
+    name: alertmanager-config
+
+  # Example ExternalAdmissionConfig that must be created:
   # ---
   # apiVersion: konflux-ci.dev/v1alpha1
   # kind: ExternalAdmissionConfig
