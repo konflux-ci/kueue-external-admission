@@ -13,6 +13,14 @@ rules:
   - list
   - watch
 - apiGroups:
+  - konflux-ci.dev
+  resources:
+  - externaladmissionconfigs
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - kueue.x-k8s.io
   resources:
   - admissionchecks
