@@ -48,8 +48,8 @@ type AlertManagerProviderConfig struct {
 	// Each filter can be applied to different subsets of workloads
 	AlertFilters []AlertFiltersConfig `json:"alertFilters"`
 
-	// Polling contains the configuration for polling intervals
-	Polling PollingConfig `json:"polling,omitempty"`
+	// CheckTTL contains the configuration how long to cache the admission result
+	CheckTTL *metav1.Duration `json:"checkTTL,omitempty"`
 }
 
 // AlertManagerConnectionConfig contains AlertManager connection details
@@ -123,17 +123,6 @@ type LabelSelector struct {
 	// +kubebuilder:validation:Enum=equals;notEquals;regex
 	// +kubebuilder:default="equals"
 	Operator string `json:"operator,omitempty"`
-}
-
-// PollingConfig contains polling configuration
-type PollingConfig struct {
-	// Interval between polls to AlertManager
-	// +kubebuilder:default="30s"
-	Interval *metav1.Duration `json:"interval,omitempty"`
-
-	// FailureThreshold is the number of consecutive failures before marking as unhealthy
-	// +kubebuilder:default=3
-	FailureThreshold int `json:"failureThreshold,omitempty"`
 }
 
 // ExternalAdmissionConfigStatus defines the observed state of ExternalAdmissionConfig.

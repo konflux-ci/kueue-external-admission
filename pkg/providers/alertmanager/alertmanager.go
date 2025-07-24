@@ -98,7 +98,7 @@ func NewAdmitter(
 
 func (a *admitter) ShouldAdmit(ctx context.Context) (watcher.AdmissionResult, error) {
 	if a.lastAdmissionResult != nil &&
-		time.Since(a.lastAdmissionTime) < a.config.Polling.Interval.Duration {
+		time.Since(a.lastAdmissionTime) < a.config.CheckTTL.Duration {
 		a.logger.Info("Using cached admission result", "lastAdmissionTime", a.lastAdmissionTime)
 		return a.lastAdmissionResult, nil
 	}
