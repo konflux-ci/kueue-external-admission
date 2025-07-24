@@ -293,11 +293,15 @@ func main() {
 	admissionService, eventsCh := watcher.NewAdmissionService(setupLog.WithName("admission-service"))
 
 	// Set up the AdmissionCheckReconciler
-	admissionCheckController := controller.NewAdmissionCheckReconciler(
+	admissionCheckController, err := controller.NewAdmissionCheckReconciler(
 		mgr.GetClient(),
 		mgr.GetScheme(),
 		admissionService,
 	)
+	if err != nil {
+		setupLog.Error(err, "unable to create admission check controller")
+		os.Exit(1)
+	}
 	if err = admissionCheckController.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller",
 			"controller", "AdmissionCheck")

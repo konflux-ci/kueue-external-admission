@@ -43,12 +43,17 @@ import (
 const admissionCheckConfigNameKey = "spec.parameters.name"
 
 // NewAdmissionCheckReconciler creates a new AdmissionCheckReconciler
-func NewAdmissionCheckReconciler(client client.Client, scheme *runtime.Scheme, admissionService *watcher.AdmissionService) *AdmissionCheckReconciler {
+func NewAdmissionCheckReconciler(client client.Client, scheme *runtime.Scheme, admissionService *watcher.AdmissionService) (*AdmissionCheckReconciler, error) {
+	acHelper, err := acutil.NewConfigHelper[*konfluxciv1alpha1.ExternalAdmissionConfig](client)
+	if err != nil {
+		return nil, err
+	}
 	return &AdmissionCheckReconciler{
 		Client:           client,
 		Scheme:           scheme,
 		admissionService: admissionService,
-	}
+		acHelper:         acHelper,
+	}, nil
 }
 
 // AdmissionCheckReconciler reconciles a AdmissionCheck object
@@ -56,6 +61,7 @@ type AdmissionCheckReconciler struct {
 	client.Client
 	Scheme           *runtime.Scheme
 	admissionService *watcher.AdmissionService // Shared service for managing admitters
+	acHelper         *acutil.ConfigHelper[*konfluxciv1alpha1.ExternalAdmissionConfig, konfluxciv1alpha1.ExternalAdmissionConfig]
 }
 
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=admissionchecks,verbs=get;list;watch;create;update;patch;delete
