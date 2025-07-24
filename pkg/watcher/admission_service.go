@@ -78,9 +78,8 @@ func (s *AdmissionService) ShouldAdmitWorkload(ctx context.Context, checkNames [
 			}
 
 			// Aggregate provider details from all checks
-			for source, details := range result.GetProviderDetails() {
-				key := fmt.Sprintf("%s.%s", checkName, source)
-				builder.AddProviderDetails(key, details)
+			for _, details := range result.GetProviderDetails() {
+				builder.AddProviderDetails(checkName, details)
 			}
 		}
 	}

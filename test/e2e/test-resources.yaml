@@ -11,9 +11,8 @@ spec:
         timeout: "10s"
       alertFilters:
         - alertNames:
-            - "TestAlert"
-            - "HighCPUUsage" 
-            - "HighMemoryUsage"
+            - TestAlert
+            - TestAlertAlwaysFiring
       polling:
         interval: "30s"
         failureThreshold: 3

@@ -58,6 +58,7 @@ func NewAdmitter(
 	config *konfluxciv1alpha1.AlertManagerProviderConfig,
 	logger logr.Logger,
 ) (*Admitter, error) {
+	// TODO: Add caching
 	// Parse the AlertManager URL
 	u, err := url.Parse(config.Connection.URL)
 	if err != nil {
@@ -143,12 +144,13 @@ func (a *Admitter) findFiringAlerts(alerts []*models.GettableAlert) []*models.Ge
 	var firingAlerts []*models.GettableAlert
 
 	for _, alertPtr := range alerts {
+		a.logger.Info("Alert", "alert", alertPtr)
 		if alertPtr == nil || alertPtr.Status == nil {
 			continue
 		}
 
 		// Skip if not firing
-		if *alertPtr.Status.State != "firing" {
+		if *alertPtr.Status.State != models.AlertStatusStateActive {
 			continue
 		}
 

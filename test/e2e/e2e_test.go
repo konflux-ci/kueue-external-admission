@@ -418,6 +418,7 @@ var _ = Describe("Manager", Ordered, func() {
 				}
 				g.Expect(found).To(BeTrue(), "AdmissionCheck should be present in workload status")
 			}, 2*time.Minute).Should(Succeed())
+
 		})
 	})
 })

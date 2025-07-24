@@ -104,6 +104,7 @@ func (m *Monitor) monitorLoop(ctx context.Context) {
 
 // checkAndEmitEvents checks current alert states and emits events for changed workloads
 func (m *Monitor) checkAndEmitEvents(ctx context.Context, previousStates map[string]bool) {
+	m.logger.Info("Periodically checking and emitting events")
 	// Get all workloads that need admission checks
 	workloads, err := m.lister.List(ctx)
 	if err != nil {
