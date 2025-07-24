@@ -2,42 +2,35 @@ package watcher
 
 import (
 	"testing"
+
+	. "github.com/onsi/gomega"
 )
 
 func TestAdmissionResultBuilder_NewDefault(t *testing.T) {
+	RegisterTestingT(t)
 	builder := NewAdmissionResult()
 	result := builder.Build()
 
-	if !result.ShouldAdmit() {
-		t.Error("Expected default result to allow admission")
-	}
-
-	if len(result.GetProviderDetails()) != 0 {
-		t.Error("Expected default result to have no provider details")
-	}
+	Expect(result.ShouldAdmit()).To(BeTrue(), "Expected default result to allow admission")
+	Expect(result.GetProviderDetails()).To(BeEmpty(), "Expected default result to have no provider details")
 }
 
 func TestAdmissionResultBuilder_MethodChaining(t *testing.T) {
+	RegisterTestingT(t)
 	result := NewAdmissionResult().
 		SetAdmissionDenied().
 		AddProviderDetails("check1", []string{"alert1", "alert2"}).
 		Build()
 
-	if result.ShouldAdmit() {
-		t.Error("Expected admission to be denied for this test case")
-	}
+	Expect(result.ShouldAdmit()).To(BeFalse(), "Expected admission to be denied for this test case")
 
 	details := result.GetProviderDetails()
-	if len(details) != 1 {
-		t.Errorf("Expected 1 check in provider details, got %d", len(details))
-	}
-
-	if len(details["check1"]) != 2 {
-		t.Errorf("Expected 2 details for check1, got %d", len(details["check1"]))
-	}
+	Expect(details).To(HaveLen(1), "Expected 1 check in provider details")
+	Expect(details["check1"]).To(HaveLen(2), "Expected 2 details for check1")
 }
 
 func TestAdmissionResult_Interface(t *testing.T) {
+	RegisterTestingT(t)
 	// Test that our implementation satisfies the interface
 	var _ AdmissionResult = &admissionResult{
 		shouldAdmit:     false,
@@ -51,52 +44,38 @@ func TestAdmissionResult_Interface(t *testing.T) {
 	}
 
 	details := result.GetProviderDetails()
-	if len(details) != 1 {
-		t.Errorf("Expected 1 check in provider details, got %d", len(details))
-	}
-
-	if len(details["check1"]) != 2 {
-		t.Errorf("Expected 2 details for check1, got %d", len(details["check1"]))
-	}
-
-	if result.ShouldAdmit() {
-		t.Error("Expected admission to be denied for this test case")
-	}
+	Expect(details).To(HaveLen(1), "Expected 1 check in provider details")
+	Expect(details["check1"]).To(HaveLen(2), "Expected 2 details for check1")
+	Expect(result.ShouldAdmit()).To(BeFalse(), "Expected admission to be denied for this test case")
 }
 
 func TestAdmissionResultBuilder_BuilderMethods(t *testing.T) {
+	RegisterTestingT(t)
 	builder := NewAdmissionResult()
 
 	// Test admission control
 	builder.SetAdmissionDenied()
 	result1 := builder.Build()
-	if result1.ShouldAdmit() {
-		t.Error("Expected admission to be denied after SetAdmissionDenied")
-	}
+	Expect(result1.ShouldAdmit()).To(BeFalse(), "Expected admission to be denied after SetAdmissionDenied")
 
 	builder.SetAdmissionAllowed()
 	result2 := builder.Build()
-	if !result2.ShouldAdmit() {
-		t.Error("Expected admission to be allowed after SetAdmissionAllowed")
-	}
+	Expect(result2.ShouldAdmit()).To(BeTrue(), "Expected admission to be allowed after SetAdmissionAllowed")
 
 	// Test AddProviderDetails
 	builder.AddProviderDetails("check1", []string{"alert1", "alert2"})
 	result3 := builder.Build()
 	details := result3.GetProviderDetails()
-	if len(details["check1"]) != 2 {
-		t.Error("Expected two details for check1 after AddProviderDetails")
-	}
+	Expect(details["check1"]).To(HaveLen(2), "Expected two details for check1 after AddProviderDetails")
 
 	// Test AddProviderDetails with empty slice (should not add)
 	builder.AddProviderDetails("check2", []string{})
 	result4 := builder.Build()
-	if _, exists := result4.GetProviderDetails()["check2"]; exists {
-		t.Error("Expected check2 to not exist after adding empty details")
-	}
+	Expect(result4.GetProviderDetails()).ToNot(HaveKey("check2"), "Expected check2 to not exist after adding empty details")
 }
 
 func TestAdmissionResult_Immutability(t *testing.T) {
+	RegisterTestingT(t)
 	builder := NewAdmissionResult()
 	builder.AddProviderDetails("check1", []string{"alert1", "alert2"})
 
@@ -108,7 +87,5 @@ func TestAdmissionResult_Immutability(t *testing.T) {
 	details1["check1"][0] = "modified"
 
 	details2 := result2.GetProviderDetails()
-	if details2["check1"][0] == "modified" {
-		t.Error("Expected immutability: modifying result1 should not affect result2")
-	}
+	Expect(details2["check1"][0]).ToNot(Equal("modified"), "Expected immutability: modifying result1 should not affect result2")
 }

@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	"github.com/go-logr/logr"
+	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	konfluxciv1alpha1 "github.com/konflux-ci/kueue-external-admission/api/konflux-ci.dev/v1alpha1"
@@ -44,6 +45,7 @@ func (m *mockTestAdmitter) ShouldAdmit(ctx context.Context) (AdmissionResult, er
 }
 
 func TestNewAdmitter_AlertManagerProvider(t *testing.T) {
+	RegisterTestingT(t)
 	config := &konfluxciv1alpha1.ExternalAdmissionConfig{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "test-config",
@@ -65,19 +67,15 @@ func TestNewAdmitter_AlertManagerProvider(t *testing.T) {
 	}
 
 	admitter, err := NewAdmitter(config, logr.Discard())
-	if err != nil {
-		t.Errorf("Expected no error creating AlertManager admitter, got %v", err)
-	}
-
-	if admitter == nil {
-		t.Error("Expected non-nil admitter")
-	}
+	Expect(err).ToNot(HaveOccurred(), "Expected no error creating AlertManager admitter")
+	Expect(admitter).ToNot(BeNil(), "Expected non-nil admitter")
 
 	// Verify it implements the Admitter interface (this is guaranteed by the compiler)
 	_ = admitter
 }
 
 func TestNewAdmitter_NoProviderConfigured(t *testing.T) {
+	RegisterTestingT(t)
 	config := &konfluxciv1alpha1.ExternalAdmissionConfig{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "test-config",
@@ -90,32 +88,19 @@ func TestNewAdmitter_NoProviderConfigured(t *testing.T) {
 	}
 
 	admitter, err := NewAdmitter(config, logr.Discard())
-	if err == nil {
-		t.Error("Expected error when no provider is configured")
-	}
-
-	if admitter != nil {
-		t.Error("Expected nil admitter when error occurs")
-	}
+	Expect(err).To(HaveOccurred(), "Expected error when no provider is configured")
+	Expect(admitter).To(BeNil(), "Expected nil admitter when error occurs")
 
 	expectedErrMsg := "no supported provider configured in ExternalAdmissionConfig test-config"
-	if err.Error() != expectedErrMsg {
-		t.Errorf("Expected error message %q, got %q", expectedErrMsg, err.Error())
-	}
+	Expect(err.Error()).To(Equal(expectedErrMsg))
 }
 
 func TestNewAdmitter_NilConfig(t *testing.T) {
+	RegisterTestingT(t)
 	admitter, err := NewAdmitter(nil, logr.Discard())
-	if err == nil {
-		t.Error("Expected error when config is nil")
-	}
-
-	if admitter != nil {
-		t.Error("Expected nil admitter when error occurs")
-	}
+	Expect(err).To(HaveOccurred(), "Expected error when config is nil")
+	Expect(admitter).To(BeNil(), "Expected nil admitter when error occurs")
 
 	expectedErrMsg := "config cannot be nil"
-	if err.Error() != expectedErrMsg {
-		t.Errorf("Expected error message %q, got %q", expectedErrMsg, err.Error())
-	}
+	Expect(err.Error()).To(Equal(expectedErrMsg))
 }

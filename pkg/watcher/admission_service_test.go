@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/go-logr/logr"
+	. "github.com/onsi/gomega"
 	"github.com/prometheus/alertmanager/api/v2/models"
 )
 
@@ -43,16 +44,14 @@ func newMockAdmitter(shouldAdmit bool, details map[string][]string) *mockAdmitte
 }
 
 func TestAdmissionService_Creation(t *testing.T) {
+	RegisterTestingT(t)
 	service, eventsCh := NewAdmissionService(logr.Discard())
-	if service == nil {
-		t.Error("Expected non-nil AdmissionService")
-	}
-	if eventsCh == nil {
-		t.Error("Expected non-nil events channel")
-	}
+	Expect(service).ToNot(BeNil(), "Expected non-nil AdmissionService")
+	Expect(eventsCh).ToNot(BeNil(), "Expected non-nil events channel")
 }
 
 func TestAdmissionService_ConcurrentAccess(t *testing.T) {
+	RegisterTestingT(t)
 	service, _ := NewAdmissionService(logr.Discard())
 	// Create a test admitter
 	admitter := newMockAdmitter(true, map[string][]string{"test": {"detail1"}})
@@ -72,9 +71,8 @@ func TestAdmissionService_ConcurrentAccess(t *testing.T) {
 
 			// Test retrieving admitter
 			retrievedAdmitter, exists := service.GetAdmitter("test-key")
-			if !exists || retrievedAdmitter == nil {
-				t.Error("Expected to retrieve admitter, got nil or not found")
-			}
+			Expect(exists).To(BeTrue(), "Expected to find admitter")
+			Expect(retrievedAdmitter).ToNot(BeNil(), "Expected non-nil retrieved admitter")
 
 			service.RemoveAdmitter("concurrent-test")
 		}()
@@ -87,6 +85,7 @@ func TestAdmissionService_ConcurrentAccess(t *testing.T) {
 }
 
 func TestAdmissionService_InterfaceFlexibility(t *testing.T) {
+	RegisterTestingT(t)
 	service, _ := NewAdmissionService(logr.Discard())
 
 	// Create test server that returns empty alerts
@@ -112,21 +111,17 @@ func TestAdmissionService_InterfaceFlexibility(t *testing.T) {
 
 	// Retrieve as interface
 	retrievedAdmitter, exists := service.GetAdmitter("test-key")
-	if !exists || retrievedAdmitter == nil {
-		t.Error("Expected to retrieve admitter, got nil or not found")
-	}
+	Expect(exists).To(BeTrue(), "Expected to find admitter")
+	Expect(retrievedAdmitter).ToNot(BeNil(), "Expected non-nil retrieved admitter")
 
 	// Test the ShouldAdmit method through the interface
 	result, err := retrievedAdmitter.ShouldAdmit(context.Background())
-	if err != nil {
-		t.Errorf("Expected no error from ShouldAdmit, got %v", err)
-	}
-	if !result.ShouldAdmit() {
-		t.Error("Expected workload to be admitted (no alerts), but it was denied")
-	}
+	Expect(err).ToNot(HaveOccurred(), "Expected no error from ShouldAdmit")
+	Expect(result.ShouldAdmit()).To(BeTrue(), "Expected workload to be admitted (no alerts)")
 }
 
 func TestAdmissionService_RetrieveMultipleAdmitters(t *testing.T) {
+	RegisterTestingT(t)
 	service, _ := NewAdmissionService(logr.Discard())
 
 	// Create multiple admitters
@@ -141,12 +136,11 @@ func TestAdmissionService_RetrieveMultipleAdmitters(t *testing.T) {
 	retrieved1, exists1 := service.GetAdmitter("key1")
 	retrieved2, exists2 := service.GetAdmitter("key2")
 
-	if !exists1 || !exists2 || retrieved1 == nil || retrieved2 == nil {
-		t.Error("Expected to retrieve both admitters")
-	}
+	Expect(exists1).To(BeTrue(), "Expected to find first admitter")
+	Expect(exists2).To(BeTrue(), "Expected to find second admitter")
+	Expect(retrieved1).ToNot(BeNil(), "Expected non-nil first admitter")
+	Expect(retrieved2).ToNot(BeNil(), "Expected non-nil second admitter")
 
 	// Test that they are different instances
-	if retrieved1 == retrieved2 {
-		t.Error("Expected different admitter instances")
-	}
+	Expect(retrieved1).ToNot(BeIdenticalTo(retrieved2), "Expected different admitter instances")
 }
