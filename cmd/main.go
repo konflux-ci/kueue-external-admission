@@ -289,29 +289,27 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Create shared admission service with event channel
-	admissionService, eventsCh := watcher.NewAdmissionService(setupLog.WithName("admission-service"))
+	// Initialize the admission service
+	admissionService, eventCh := watcher.NewAdmissionService(setupLog.WithName("admission-service"))
 
-	// Set up the AdmissionCheckReconciler
-	admissionCheckController, err := controller.NewAdmissionCheckReconciler(
-		mgr.GetClient(),
-		mgr.GetScheme(),
-		admissionService,
-	)
-	if err != nil {
-		setupLog.Error(err, "unable to create admission check controller")
-		os.Exit(1)
-	}
-	if err = admissionCheckController.SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller",
-			"controller", "AdmissionCheck")
-		os.Exit(1)
-	}
-
+	// Setup signal handler context
 	ctx := ctrl.SetupSignalHandler()
-	// Set up indexer for AdmissionChecks that reference an ExternalAdmissionConfig
+
+	// Setup field indexer for AdmissionCheck references to ExternalAdmissionConfig
 	if err := controller.SetupIndexer(ctx, mgr.GetFieldIndexer()); err != nil {
-		setupLog.Error(err, "unable to set up indexer")
+		setupLog.Error(err, "unable to setup field indexer")
+		os.Exit(1)
+	}
+
+	// Setup AdmissionCheck reconciler
+	admissionCheckReconciler, err := controller.NewAdmissionCheckReconciler(
+		mgr.GetClient(), mgr.GetScheme(), admissionService)
+	if err != nil {
+		setupLog.Error(err, "unable to create AdmissionCheck controller")
+		os.Exit(1)
+	}
+	if err = admissionCheckReconciler.SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "AdmissionCheck")
 		os.Exit(1)
 	}
 
@@ -337,7 +335,7 @@ func main() {
 		admissionService,
 		clock.RealClock{},
 	)
-	if err = workloadController.SetupWithManager(mgr, eventsCh); err != nil {
+	if err = workloadController.SetupWithManager(mgr, eventCh); err != nil {
 		setupLog.Error(err, "unable to create controller",
 			"controller", "Workload")
 		os.Exit(1)

@@ -18,7 +18,6 @@ package controller
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -97,29 +96,19 @@ func (r *AdmissionCheckReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return r.updateAdmissionCheckStatus(ctx, ac, false, "failed to get ExternalAdmissionConfig: "+err.Error())
 	}
 
-	// Validate that we have an AlertManager provider
-	if externalConfig.Spec.Provider.AlertManager == nil {
-		err := fmt.Errorf("no AlertManager provider configured in ExternalAdmissionConfig %s/%s", externalConfig.Namespace, externalConfig.Name)
-		log.Error(err, "missing AlertManager provider")
-		return r.updateAdmissionCheckStatus(ctx, ac, false, err.Error())
-	}
-
-	// Create or update AlertManager admitter
-	admitter, err := watcher.NewAlertManagerAdmitter(
-		externalConfig.Spec.Provider.AlertManager,
-		log.WithValues("admissionCheck", req.Name),
-	)
+	// Create or update Admitter using factory function
+	admitter, err := watcher.NewAdmitter(externalConfig, log.WithValues("admissionCheck", req.Name))
 	if err != nil {
-		log.Error(err, "Failed to create AlertManager admitter")
-		return r.updateAdmissionCheckStatus(ctx, ac, false, "failed to create AlertManager admitter: "+err.Error())
+		log.Error(err, "Failed to create admitter")
+		return r.updateAdmissionCheckStatus(ctx, ac, false, "failed to create admitter: "+err.Error())
 	}
 
 	// Register the admitter with the shared service (using interface)
 	r.admissionService.SetAdmitter(req.Name, admitter)
-	log.Info("Created/updated AlertManager admitter for AdmissionCheck", "admissionCheck", req.Name)
+	log.Info("Created/updated admitter for AdmissionCheck", "admissionCheck", req.Name)
 
 	// Update AdmissionCheck status to Active
-	return r.updateAdmissionCheckStatus(ctx, ac, true, "AlertManager admission check is active")
+	return r.updateAdmissionCheckStatus(ctx, ac, true, "External admission check is active")
 }
 
 // updateAdmissionCheckStatus updates the status of an AdmissionCheck
@@ -202,7 +191,7 @@ func (r *AdmissionCheckReconciler) findAdmissionChecksForConfig(ctx context.Cont
 		return nil
 	}
 
-	var requests []reconcile.Request
+	requests := make([]reconcile.Request, 0, len(admissionChecks.Items))
 	for _, ac := range admissionChecks.Items {
 		requests = append(requests, reconcile.Request{
 			NamespacedName: client.ObjectKey{
