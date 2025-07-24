@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"sync"
-	"time"
 
 	"github.com/go-logr/logr"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -60,7 +59,6 @@ func (s *AdmissionService) GetAdmitter(admissionCheckName string) (Admitter, boo
 
 // ShouldAdmitWorkload aggregates admission decisions from multiple admitters
 func (s *AdmissionService) ShouldAdmitWorkload(ctx context.Context, checkNames []string) (AdmissionResult, error) {
-	startTime := time.Now()
 	s.logger.V(1).Info("Checking admission for workload", "checks", checkNames)
 
 	builder := NewAdmissionResult()
@@ -71,20 +69,20 @@ func (s *AdmissionService) ShouldAdmitWorkload(ctx context.Context, checkNames [
 			hasAnyCheck = true
 
 			// Create metrics recorder for this admission check
-			metrics := NewAdmissionMetrics(checkName)
+			admissionMetrics := NewAdmissionMetrics(checkName)
 
 			result, err := admitter.ShouldAdmit(ctx)
 			if err != nil {
 				s.logger.Error(err, "Failed to check admission", "check", checkName)
 
 				// Record error metrics
-				metrics.RecordError("admission_check_failed")
+				admissionMetrics.RecordError("admission_check_failed")
 
 				return nil, fmt.Errorf("failed to check admission for %s: %w", checkName, err)
 			}
 
 			// Record successful admission decision
-			metrics.RecordDecision(result.ShouldAdmit())
+			admissionMetrics.RecordDecision(result.ShouldAdmit())
 
 			if !result.ShouldAdmit() {
 				builder.SetAdmissionDenied()
@@ -104,16 +102,11 @@ func (s *AdmissionService) ShouldAdmitWorkload(ctx context.Context, checkNames [
 	}
 
 	finalResult := builder.Build()
-	totalDuration := time.Since(startTime)
-
-	// Record overall workload admission decision metrics
-	RecordWorkloadAdmissionDecision(ctx, checkNames, finalResult.ShouldAdmit(), totalDuration)
 
 	s.logger.V(1).Info("Workload admission decision completed",
 		"shouldAdmit", finalResult.ShouldAdmit(),
 		"providerDetails", finalResult.GetProviderDetails(),
 		"checksEvaluated", len(checkNames),
-		"duration", totalDuration,
 	)
 
 	return finalResult, nil

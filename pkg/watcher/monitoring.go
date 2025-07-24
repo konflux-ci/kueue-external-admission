@@ -1,8 +1,6 @@
 package watcher
 
 import (
-	"context"
-	"strconv"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -14,7 +12,7 @@ var (
 	admissionCheckStatus = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "kueue_external_admission_check_status",
-			Help: "Current admission status for each admission check (1 = admitting, 0 = denying, -1 = error)",
+			Help: "Current admission status for each admission check (1 = admitting, 0 = denying)",
 		},
 		[]string{"check_name"},
 	)
@@ -46,25 +44,6 @@ var (
 		},
 		[]string{"check_name", "error_type"},
 	)
-
-	// workloadAdmissionDecisions counts total workload admission decisions
-	workloadAdmissionDecisions = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "kueue_external_admission_workload_decisions_total",
-			Help: "Total number of workload admission decisions",
-		},
-		[]string{"decision", "checks_count"},
-	)
-
-	// workloadAdmissionDuration tracks the duration of complete workload admission evaluation
-	workloadAdmissionDuration = prometheus.NewHistogramVec(
-		prometheus.HistogramOpts{
-			Name:    "kueue_external_admission_workload_duration_seconds",
-			Help:    "Duration of complete workload admission evaluation in seconds",
-			Buckets: prometheus.DefBuckets,
-		},
-		[]string{"checks_count"},
-	)
 )
 
 func init() {
@@ -74,46 +53,10 @@ func init() {
 		admissionCheckDecisionsTotal,
 		admissionCheckDuration,
 		admissionCheckErrors,
-		workloadAdmissionDecisions,
-		workloadAdmissionDuration,
 	)
 }
 
-// RecordAdmissionDecision records metrics for an admission decision
-func RecordAdmissionDecision(checkName string, admitted bool, duration time.Duration) {
-	// Update current status
-	if admitted {
-		admissionCheckStatus.WithLabelValues(checkName).Set(1)
-		admissionCheckDecisionsTotal.WithLabelValues(checkName, "admitted").Inc()
-	} else {
-		admissionCheckStatus.WithLabelValues(checkName).Set(0)
-		admissionCheckDecisionsTotal.WithLabelValues(checkName, "denied").Inc()
-	}
-
-	// Record duration
-	admissionCheckDuration.WithLabelValues(checkName).Observe(duration.Seconds())
-}
-
-// RecordAdmissionError records metrics for admission check errors
-func RecordAdmissionError(checkName, errorType string) {
-	admissionCheckErrors.WithLabelValues(checkName, errorType).Inc()
-	// Set status to error (-1) when there's an error
-	admissionCheckStatus.WithLabelValues(checkName).Set(-1)
-}
-
-// RecordWorkloadAdmissionDecision records metrics for the overall workload admission decision
-func RecordWorkloadAdmissionDecision(ctx context.Context, checkNames []string, finalDecision bool, totalDuration time.Duration) {
-	decision := "denied"
-	if finalDecision {
-		decision = "admitted"
-	}
-
-	checksCount := strconv.Itoa(len(checkNames))
-	workloadAdmissionDecisions.WithLabelValues(decision, checksCount).Inc()
-	workloadAdmissionDuration.WithLabelValues(checksCount).Observe(totalDuration.Seconds())
-}
-
-// AdmissionMetrics provides a wrapper for recording admission metrics
+// AdmissionMetrics provides a scoped metrics recorder for an admission check
 type AdmissionMetrics struct {
 	checkName string
 	startTime time.Time
@@ -127,13 +70,26 @@ func NewAdmissionMetrics(checkName string) *AdmissionMetrics {
 	}
 }
 
-// RecordDecision records the final admission decision and duration
+// RecordDecision records the final admission decision with automatic duration calculation
 func (m *AdmissionMetrics) RecordDecision(admitted bool) {
 	duration := time.Since(m.startTime)
-	RecordAdmissionDecision(m.checkName, admitted, duration)
+
+	// Update current status
+	if admitted {
+		admissionCheckStatus.WithLabelValues(m.checkName).Set(1)
+		admissionCheckDecisionsTotal.WithLabelValues(m.checkName, "admitted").Inc()
+	} else {
+		admissionCheckStatus.WithLabelValues(m.checkName).Set(0)
+		admissionCheckDecisionsTotal.WithLabelValues(m.checkName, "denied").Inc()
+	}
+
+	// Record duration
+	admissionCheckDuration.WithLabelValues(m.checkName).Observe(duration.Seconds())
 }
 
 // RecordError records an error during admission evaluation
 func (m *AdmissionMetrics) RecordError(errorType string) {
-	RecordAdmissionError(m.checkName, errorType)
+	admissionCheckErrors.WithLabelValues(m.checkName, errorType).Inc()
+	// Don't update status gauge on error - let it keep the last known admission state
+	// Errors are tracked separately in admissionCheckErrors metric
 }
