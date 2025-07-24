@@ -52,6 +52,7 @@ func NewAdmissionCheckReconciler(client client.Client, scheme *runtime.Scheme, a
 		Scheme:           scheme,
 		admissionService: admissionService,
 		acHelper:         acHelper,
+		admitterFactory:  watcher.NewAdmitter,
 	}, nil
 }
 
@@ -61,6 +62,7 @@ type AdmissionCheckReconciler struct {
 	Scheme           *runtime.Scheme
 	admissionService *watcher.AdmissionService // Shared service for managing admitters
 	acHelper         *acutil.ConfigHelper[*konfluxciv1alpha1.ExternalAdmissionConfig, konfluxciv1alpha1.ExternalAdmissionConfig]
+	admitterFactory  watcher.AdmitterFactory
 }
 
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=admissionchecks,verbs=get;list;watch;create;update;patch;delete
@@ -97,7 +99,7 @@ func (r *AdmissionCheckReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 
 	// Create or update Admitter using factory function
-	admitter, err := watcher.NewAdmitter(externalConfig, log.WithValues("admissionCheck", req.Name))
+	admitter, err := r.admitterFactory(externalConfig, log.WithValues("admissionCheck", req.Name))
 	if err != nil {
 		log.Error(err, "Failed to create admitter")
 		return r.updateAdmissionCheckStatus(ctx, ac, false, "failed to create admitter: "+err.Error())
