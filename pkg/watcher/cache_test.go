@@ -11,6 +11,8 @@ import (
 	. "github.com/onsi/gomega"
 )
 
+const testValue = "test-value"
+
 func TestCache_GetOrUpdate_FirstCall(t *testing.T) {
 	RegisterTestingT(t)
 	cache := NewCache[string](time.Minute)
@@ -19,13 +21,13 @@ func TestCache_GetOrUpdate_FirstCall(t *testing.T) {
 	callCount := 0
 	fetch := func(ctx context.Context) (string, error) {
 		callCount++
-		return "test-value", nil
+		return testValue, nil
 	}
 
 	result, err := cache.GetOrUpdate(ctx, fetch)
 
 	Expect(err).ToNot(HaveOccurred())
-	Expect(result).To(Equal("test-value"))
+	Expect(result).To(Equal(testValue))
 	Expect(callCount).To(Equal(1))
 }
 
@@ -37,7 +39,7 @@ func TestCache_GetOrUpdate_CacheHit(t *testing.T) {
 	callCount := 0
 	fetch := func(ctx context.Context) (string, error) {
 		callCount++
-		return "test-value", nil
+		return testValue, nil
 	}
 
 	// First call should fetch
@@ -73,7 +75,7 @@ func TestCache_GetOrUpdate_CacheMiss_AfterTTL(t *testing.T) {
 	// Second call should fetch again
 	result2, err2 := cache.GetOrUpdate(ctx, fetch)
 	Expect(err2).ToNot(HaveOccurred())
-	Expect(result2).To(Equal("test-value"))
+	Expect(result2).To(Equal(testValue))
 	Expect(callCount).To(Equal(2))
 }
 
@@ -124,11 +126,11 @@ func TestCache_GetOrUpdate_ConcurrentAccess(t *testing.T) {
 	ctx := context.Background()
 
 	var callCount int64
-	fetch := func(ctx context.Context) (string, error) {
+	fetch := func(ctx context.Context) (string, error) { //nolint:unparam // Testing success case, error is always nil
 		atomic.AddInt64(&callCount, 1)
 		// Add small delay to make race condition more likely
 		time.Sleep(10 * time.Millisecond)
-		return "test-value", nil
+		return testValue, nil
 	}
 
 	const numGoroutines = 10
@@ -156,7 +158,7 @@ func TestCache_GetOrUpdate_ConcurrentAccess(t *testing.T) {
 
 	// Check that all results are the same
 	for i, result := range results {
-		Expect(result).To(Equal("test-value"), "Goroutine %d should get correct result", i)
+		Expect(result).To(Equal(testValue), "Goroutine %d should get correct result", i)
 	}
 
 	// Check that fetch was called only once (due to double-check locking)
@@ -175,7 +177,7 @@ func TestCache_GetOrUpdate_ContextCancellation(t *testing.T) {
 		case <-ctx.Done():
 			return "", ctx.Err()
 		case <-time.After(50 * time.Millisecond):
-			return "test-value", nil
+			return testValue, nil
 		}
 	}
 

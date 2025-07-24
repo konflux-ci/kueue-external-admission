@@ -71,7 +71,10 @@ func TestAdmissionResultBuilder_BuilderMethods(t *testing.T) {
 	// Test AddProviderDetails with empty slice (should not add)
 	builder.AddProviderDetails("check2", []string{})
 	result4 := builder.Build()
-	Expect(result4.GetProviderDetails()).ToNot(HaveKey("check2"), "Expected check2 to not exist after adding empty details")
+	Expect(result4.GetProviderDetails()).ToNot(
+		HaveKey("check2"),
+		"Expected check2 to not exist after adding empty details",
+	)
 }
 
 func TestAdmissionResult_Immutability(t *testing.T) {
@@ -87,5 +90,8 @@ func TestAdmissionResult_Immutability(t *testing.T) {
 	details1["check1"][0] = "modified"
 
 	details2 := result2.GetProviderDetails()
-	Expect(details2["check1"][0]).ToNot(Equal("modified"), "Expected immutability: modifying result1 should not affect result2")
+	Expect(details2["check1"][0]).ToNot(
+		Equal("modified"),
+		"Expected immutability: modifying result1 should not affect result2",
+	)
 }
