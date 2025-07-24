@@ -1,4 +1,23 @@
 ---
+apiVersion: konflux-ci.dev/v1alpha1
+kind: ExternalAdmissionConfig
+metadata:
+  name: test-alertmanager-config
+  namespace: test-ns
+spec:
+  alertManager:
+    url: "http://alertmanager-operated.monitoring.svc.cluster.local:9093"
+    timeout: "10s"
+  alertFilters:
+    alertNames:
+      - "TestAlert"
+      - "HighCPUUsage" 
+      - "HighMemoryUsage"
+  polling:
+    interval: "30s"
+    failureThreshold: 3
+
+---
 apiVersion: kueue.x-k8s.io/v1beta1
 kind: AdmissionCheck
 metadata:
@@ -6,9 +25,9 @@ metadata:
 spec:
   controllerName: konflux-ci.dev/kueue-external-admission
   parameters:
-    apiGroup: config.kueue.x-k8s.io
-    kind: AlertManagerConfig
-    name: test-config
+    apiGroup: konflux-ci.dev
+    kind: ExternalAdmissionConfig
+    name: test-alertmanager-config
 
 ---
 apiVersion: kueue.x-k8s.io/v1beta1

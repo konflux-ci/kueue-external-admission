@@ -1,9 +1,39 @@
-apiVersion: konflux-ci.dev.konflux-ci.dev/v1alpha1
+apiVersion: konflux-ci.dev/v1alpha1
 kind: ExternalAdmissionConfig
 metadata:
-  labels:
-    app.kubernetes.io/name: kueue-external-admission
-    app.kubernetes.io/managed-by: kustomize
-  name: externaladmissionconfig-sample
+  name: alertmanager-config
+  namespace: default
 spec:
-  # TODO(user): Add fields here
+  alertManager:
+    url: "http://alertmanager-operated.monitoring.svc.cluster.local:9093"
+    timeout: "10s"
+  alertFilters:
+    alertNames:
+      - "HighCPUUsage"
+      - "HighMemoryUsage"
+      - "NodeNotReady"
+      - "KubernetesPodCrashLooping"
+      - "DiskSpaceRunningLow"
+      - "PrometheusTargetDown"
+    labelSelectors:
+      - name: "severity"
+        value: "critical"
+        operator: "equals"
+      - name: "team"
+        value: "platform|infrastructure"
+        operator: "regex"
+  polling:
+    interval: "30s"
+    failureThreshold: 3
+---
+# Updated AdmissionCheck that references the config
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: AdmissionCheck
+metadata:
+  name: sample-admission-check
+spec:
+  controllerName: konflux-ci.dev/kueue-external-admission
+  parameters:
+    apiGroup: konflux-ci.dev
+    kind: ExternalAdmissionConfig
+    name: alertmanager-config

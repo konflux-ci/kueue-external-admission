@@ -27,11 +27,13 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 
+	konfluxciv1alpha1 "github.com/konflux-ci/kueue-external-admission/api/konflux-ci.dev/v1alpha1"
 	"github.com/konflux-ci/kueue-external-admission/pkg/constant"
 	"github.com/konflux-ci/kueue-external-admission/pkg/watcher"
 )
@@ -56,7 +58,7 @@ type AdmissionCheckReconciler struct {
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=admissionchecks/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=admissionchecks/finalizers,verbs=update
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
-
+// +kubebuilder:rbac:groups=konflux-ci.dev,resources=externaladmissionconfigs,verbs=get;list;watch
 // Reconcile is part of the main reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
 func (r *AdmissionCheckReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -79,7 +81,11 @@ func (r *AdmissionCheckReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 
 	// Parse AlertManager configuration from parameters
-	config := r.parseACConfig(ac)
+	config, err := r.parseACConfig(ctx, ac)
+	if err != nil {
+		log.Error(err, "failed to parse AdmissionCheck configuration")
+		return r.updateAdmissionCheckStatus(ctx, ac, false, "failed to parse AdmissionCheck configuration: "+err.Error())
+	}
 	if config == nil {
 		log.Error(nil, "failed to parse AdmissionCheck configuration")
 		return r.updateAdmissionCheckStatus(ctx, ac, false, "failed to parse AdmissionCheck configuration")
@@ -105,15 +111,72 @@ func (r *AdmissionCheckReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 }
 
 // parseACConfig parses the AlertManager configuration from AdmissionCheck parameters
-func (r *AdmissionCheckReconciler) parseACConfig(_ *kueue.AdmissionCheck) *AlertManagerAdmissionCheckConfig {
-	// For now, use a simple hardcoded configuration until we implement proper parameter parsing
-	// TODO: Implement proper parameter parsing based on Kueue's parameter structure
-	// This would involve reading from ac.Spec.Parameters and parsing the configuration
+func (r *AdmissionCheckReconciler) parseACConfig(ctx context.Context, ac *kueue.AdmissionCheck) (*AlertManagerAdmissionCheckConfig, error) {
+	// Check if parameters are specified
+	if ac.Spec.Parameters == nil {
+		// Use default configuration if no parameters are provided
+		return r.getDefaultConfig(), nil
+	}
 
-	// Create a default configuration for demonstration
+	// Try to get the ExternalAdmissionConfig
+	configKey := client.ObjectKey{
+		Name:      ac.Spec.Parameters.Name,
+		Namespace: ac.Namespace, // Use the same namespace as the AdmissionCheck
+	}
+
+	externalConfig := &konfluxciv1alpha1.ExternalAdmissionConfig{}
+	if err := r.Get(ctx, configKey, externalConfig); err != nil {
+		if client.IgnoreNotFound(err) == nil {
+			// Config not found, use default configuration
+			return r.getDefaultConfig(), nil
+		}
+		return nil, err
+	}
+
+	// Convert ExternalAdmissionConfig to internal format
+	return r.convertExternalConfig(externalConfig), nil
+}
+
+// convertExternalConfig converts ExternalAdmissionConfig to internal AlertManagerAdmissionCheckConfig
+func (r *AdmissionCheckReconciler) convertExternalConfig(external *konfluxciv1alpha1.ExternalAdmissionConfig) *AlertManagerAdmissionCheckConfig {
 	config := &AlertManagerAdmissionCheckConfig{
 		AlertManager: AlertManagerConfig{
-			URL:     "http://alertmanager-operated.monitoring.svc.cluster.local:9093/api/v2",
+			URL: external.Spec.AlertManager.URL,
+		},
+		AlertFilters: AlertFiltersConfig{
+			AlertNames: external.Spec.AlertFilters.AlertNames,
+		},
+		Polling: PollingConfig{
+			Interval:         30 * time.Second,
+			FailureThreshold: 3,
+		},
+	}
+
+	// Set timeout if specified
+	if external.Spec.AlertManager.Timeout != nil {
+		config.AlertManager.Timeout = external.Spec.AlertManager.Timeout.Duration
+	} else {
+		config.AlertManager.Timeout = 10 * time.Second
+	}
+
+	// Set polling interval if specified
+	if external.Spec.Polling.Interval != nil {
+		config.Polling.Interval = external.Spec.Polling.Interval.Duration
+	}
+
+	// Set failure threshold if specified
+	if external.Spec.Polling.FailureThreshold > 0 {
+		config.Polling.FailureThreshold = external.Spec.Polling.FailureThreshold
+	}
+
+	return config
+}
+
+// getDefaultConfig returns a default configuration when no external config is available
+func (r *AdmissionCheckReconciler) getDefaultConfig() *AlertManagerAdmissionCheckConfig {
+	return &AlertManagerAdmissionCheckConfig{
+		AlertManager: AlertManagerConfig{
+			URL:     "http://alertmanager-operated.monitoring.svc.cluster.local:9093",
 			Timeout: 10 * time.Second,
 		},
 		AlertFilters: AlertFiltersConfig{
@@ -130,8 +193,6 @@ func (r *AdmissionCheckReconciler) parseACConfig(_ *kueue.AdmissionCheck) *Alert
 			FailureThreshold: 3,
 		},
 	}
-
-	return config
 }
 
 // updateAdmissionCheckStatus updates the status of an AdmissionCheck
@@ -178,6 +239,44 @@ func ControllerNamePredicate() predicate.Predicate {
 func (r *AdmissionCheckReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kueue.AdmissionCheck{}, builder.WithPredicates(ControllerNamePredicate())).
+		// Watch ExternalAdmissionConfig changes and reconcile related AdmissionChecks
+		Watches(
+			&konfluxciv1alpha1.ExternalAdmissionConfig{},
+			handler.EnqueueRequestsFromMapFunc(r.findAdmissionChecksForConfig),
+		).
 		Named("admissioncheck").
 		Complete(r)
+}
+
+// findAdmissionChecksForConfig finds AdmissionChecks that should be reconciled
+// when an ExternalAdmissionConfig changes
+func (r *AdmissionCheckReconciler) findAdmissionChecksForConfig(ctx context.Context, obj client.Object) []reconcile.Request {
+	config, ok := obj.(*konfluxciv1alpha1.ExternalAdmissionConfig)
+	if !ok {
+		return nil
+	}
+
+	// Find all AdmissionChecks that reference this config
+	admissionChecks := &kueue.AdmissionCheckList{}
+	if err := r.List(ctx, admissionChecks); err != nil {
+		return nil
+	}
+
+	var requests []reconcile.Request
+	for _, ac := range admissionChecks.Items {
+		// Check if this AdmissionCheck is managed by our controller and references this config
+		if ac.Spec.ControllerName == constant.ControllerName &&
+			ac.Spec.Parameters != nil &&
+			ac.Spec.Parameters.Name == config.Name {
+
+			requests = append(requests, reconcile.Request{
+				NamespacedName: client.ObjectKey{
+					Name:      ac.Name,
+					Namespace: ac.Namespace,
+				},
+			})
+		}
+	}
+
+	return requests
 }
