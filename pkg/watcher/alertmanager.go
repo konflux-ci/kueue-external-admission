@@ -72,8 +72,8 @@ func NewAlertManagerAdmitter(
 // Returns an AdmissionResult indicating whether to admit and any firing alerts
 func (a *AlertManagerAdmitter) ShouldAdmit(ctx context.Context) (AdmissionResult, error) {
 	result := &defaultAdmissionResult{
-		shouldAdmit:  true,
-		firingAlerts: make(map[string][]string),
+		shouldAdmit:     true,
+		providerDetails: make(map[string][]string),
 	}
 
 	alerts, err := a.getActiveAlerts(ctx)
@@ -88,20 +88,18 @@ func (a *AlertManagerAdmitter) ShouldAdmit(ctx context.Context) (AdmissionResult
 		return result, nil
 	}
 
-	// Check if any of the filtered alerts are firing
+	// Check if any alerts are firing
 	firingAlerts := a.findFiringAlerts(alerts)
 	if len(firingAlerts) > 0 {
 		alertNames := a.getAlertNames(firingAlerts)
-		result.addFiringAlerts("alertmanager", alertNames)
+		result.addProviderDetails("alertmanager", alertNames)
 		result.setAdmissionDenied()
-
-		a.logger.Info("Found firing alerts, denying admission",
-			"firingAlerts", len(firingAlerts),
-			"alertNames", alertNames)
-	} else {
-		a.logger.Info("No matching alerts are firing, allowing admission",
-			"totalAlerts", len(alerts))
 	}
+
+	a.logger.V(1).Info("AlertManager admission check completed",
+		"shouldAdmit", result.ShouldAdmit(),
+		"firingAlerts", len(firingAlerts),
+	)
 
 	return result, nil
 }

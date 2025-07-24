@@ -141,14 +141,14 @@ func (m *AlertMonitor) checkAndEmitEvents(ctx context.Context, previousStates ma
 			continue
 		}
 
-		// Check current admission state
-		result, err := m.admissionService.ShouldAdmitWorkload(ctx, relevantChecks)
+		// Check admission using the same mechanism as the workload controller
+		admissionResult, err := m.admissionService.ShouldAdmitWorkload(ctx, relevantChecks)
 		if err != nil {
 			m.logger.Error(err, "Failed to check admission state", "workload", wl.Name)
 			continue
 		}
 
-		currentState := result.ShouldAdmit()
+		currentState := admissionResult.ShouldAdmit()
 		currentStates[workloadKey] = currentState
 
 		// Compare with previous state and emit event if changed

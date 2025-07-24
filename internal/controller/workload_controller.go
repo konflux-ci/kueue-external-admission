@@ -122,7 +122,7 @@ func (w *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	// for this workload's ClusterQueue
 	admissionResult, err := w.admissionService.ShouldAdmitWorkload(ctx, admissionCheckNames)
 	if err != nil {
-		log.Error(err, "Error checking admission for AdmissionCheck", "workload", wl.Name)
+		log.Error(err, "Error checking admission for workload", "workload", wl.Name)
 		return reconcile.Result{}, err
 	}
 
@@ -135,13 +135,13 @@ func (w *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			state = kueue.CheckStateReady
 			message = "approving workload"
 		} else {
-			// Include firing alerts in the denial message
-			firingAlerts := admissionResult.GetFiringAlerts()
-			if alerts, exists := firingAlerts[check]; exists && len(alerts) > 0 {
-				if len(alerts) == 1 {
-					message = fmt.Sprintf("denying workload due to firing alert: %s", alerts[0])
+			// Include provider details in the denial message
+			providerDetails := admissionResult.GetProviderDetails()
+			if details, exists := providerDetails[check]; exists && len(details) > 0 {
+				if len(details) == 1 {
+					message = fmt.Sprintf("denying workload due to: %s", details[0])
 				} else {
-					message = fmt.Sprintf("denying workload due to firing alerts: %s", strings.Join(alerts, ", "))
+					message = fmt.Sprintf("denying workload due to: %s", strings.Join(details, ", "))
 				}
 			}
 		}

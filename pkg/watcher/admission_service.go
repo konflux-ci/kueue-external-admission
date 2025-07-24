@@ -52,58 +52,45 @@ func (s *AdmissionService) GetAdmitter(admissionCheckName string) (Admitter, boo
 	return admitter, ok
 }
 
-// ShouldAdmitWorkload checks all relevant admitters for a workload admission
-func (s *AdmissionService) ShouldAdmitWorkload(
-	ctx context.Context,
-	admissionCheckNames []string,
-) (AdmissionResult, error) {
-	// Create the result to aggregate multiple admission checks
+// ShouldAdmitWorkload aggregates admission decisions from multiple admitters
+func (s *AdmissionService) ShouldAdmitWorkload(ctx context.Context, checkNames []string) (AdmissionResult, error) {
+	s.logger.V(1).Info("Checking admission for workload", "checks", checkNames)
+
 	aggregatedResult := NewAdmissionResult()
-	aggregatedResult.setAdmissionAllowed()
+	hasAnyCheck := false
 
-	// Check each relevant admission check
-	for _, checkName := range admissionCheckNames {
-		value, exists := s.admitters.Load(checkName)
-		if !exists {
-			s.logger.Info("No admitter found for AdmissionCheck, allowing admission", "admissionCheck", checkName)
-			continue
-		}
+	for _, checkName := range checkNames {
+		if admitter, exists := s.GetAdmitter(checkName); exists {
+			hasAnyCheck = true
+			result, err := admitter.ShouldAdmit(ctx)
+			if err != nil {
+				s.logger.Error(err, "Failed to check admission", "check", checkName)
+				return nil, fmt.Errorf("failed to check admission for %s: %w", checkName, err)
+			}
 
-		admitter, ok := value.(Admitter)
-		if !ok {
-			return nil, fmt.Errorf("invalid admitter type found for admission check %s", checkName)
-		}
+			if !result.ShouldAdmit() {
+				aggregatedResult.setAdmissionDenied()
+			}
 
-		// Get admission result from the admitter
-		result, err := admitter.ShouldAdmit(ctx)
-		if err != nil {
-			return nil, err
-		}
-
-		// Aggregate results
-		if !result.ShouldAdmit() {
-			aggregatedResult.setAdmissionDenied()
-
-			// Merge firing alerts (prefix with admission check name for clarity)
-			for source, alerts := range result.GetFiringAlerts() {
+			// Aggregate provider details from all checks
+			for source, details := range result.GetProviderDetails() {
 				key := fmt.Sprintf("%s.%s", checkName, source)
-				aggregatedResult.addFiringAlerts(key, alerts)
+				aggregatedResult.addProviderDetails(key, details)
 			}
 		}
 	}
 
-	if aggregatedResult.ShouldAdmit() {
-		s.logger.Info(
-			"All AdmissionChecks allow admission",
-			"admissionChecks", admissionCheckNames,
-		)
-	} else {
-		s.logger.Info(
-			"Admission denied due to one or more failing checks",
-			"admissionChecks", admissionCheckNames,
-			"firingAlerts", aggregatedResult.GetFiringAlerts(),
-		)
+	// If no admission checks were found, allow admission
+	if !hasAnyCheck {
+		s.logger.V(1).Info("No admission checks found, allowing admission")
+		aggregatedResult.setAdmissionAllowed()
 	}
+
+	s.logger.V(1).Info("Workload admission decision completed",
+		"shouldAdmit", aggregatedResult.ShouldAdmit(),
+		"providerDetails", aggregatedResult.GetProviderDetails(),
+		"checksEvaluated", len(checkNames),
+	)
 
 	return aggregatedResult, nil
 }
