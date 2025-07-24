@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"time"
 
 	"github.com/go-logr/logr"
 	httptransport "github.com/go-openapi/runtime/client"
@@ -43,21 +44,23 @@ func init() {
 		})
 }
 
-// Admitter implements the watcher.Admitter interface using AlertManager API
-type Admitter struct {
-	client       *alertclient.AlertmanagerAPI
-	config       *konfluxciv1alpha1.AlertManagerProviderConfig
-	alertFilters []string
-	logger       logr.Logger
+// admitter implements the watcher.admitter interface using AlertManager API
+type admitter struct {
+	client              *alertclient.AlertmanagerAPI
+	config              *konfluxciv1alpha1.AlertManagerProviderConfig
+	alertFilters        []string
+	logger              logr.Logger
+	lastAdmissionTime   time.Time
+	lastAdmissionResult watcher.AdmissionResult
 }
 
-var _ watcher.Admitter = &Admitter{}
+var _ watcher.Admitter = &admitter{}
 
 // NewAdmitter creates a new AlertManager client using the official API v2 client
 func NewAdmitter(
 	config *konfluxciv1alpha1.AlertManagerProviderConfig,
 	logger logr.Logger,
-) (*Admitter, error) {
+) (watcher.Admitter, error) {
 	// TODO: Add caching
 	// Parse the AlertManager URL
 	u, err := url.Parse(config.Connection.URL)
@@ -84,17 +87,36 @@ func NewAdmitter(
 		allAlertNames = append(allAlertNames, filter.AlertNames...)
 	}
 
-	return &Admitter{
-		client:       client,
-		config:       config,
-		alertFilters: allAlertNames,
-		logger:       logger,
+	return &admitter{
+		client:            client,
+		config:            config,
+		alertFilters:      allAlertNames,
+		logger:            logger,
+		lastAdmissionTime: time.Time{},
 	}, nil
+}
+
+func (a *admitter) ShouldAdmit(ctx context.Context) (watcher.AdmissionResult, error) {
+	if a.lastAdmissionResult != nil &&
+		time.Since(a.lastAdmissionTime) < a.config.Polling.Interval.Duration {
+		a.logger.Info("Using cached admission result", "lastAdmissionTime", a.lastAdmissionTime)
+		return a.lastAdmissionResult, nil
+	}
+
+	result, err := a.shouldAdmit(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	a.lastAdmissionResult = result
+	a.lastAdmissionTime = time.Now()
+
+	return result, nil
 }
 
 // ShouldAdmit implements watcher.Admitter interface
 // Returns an AdmissionResult indicating whether to admit and any firing alerts
-func (a *Admitter) ShouldAdmit(ctx context.Context) (watcher.AdmissionResult, error) {
+func (a *admitter) shouldAdmit(ctx context.Context) (watcher.AdmissionResult, error) {
 	builder := watcher.NewAdmissionResult()
 
 	alerts, err := a.getActiveAlerts(ctx)
@@ -127,7 +149,7 @@ func (a *Admitter) ShouldAdmit(ctx context.Context) (watcher.AdmissionResult, er
 }
 
 // getActiveAlerts queries the AlertManager v2 API for active alerts using the official client
-func (a *Admitter) getActiveAlerts(ctx context.Context) ([]*models.GettableAlert, error) {
+func (a *admitter) getActiveAlerts(ctx context.Context) ([]*models.GettableAlert, error) {
 	params := alert.NewGetAlertsParamsWithContext(ctx).WithDefaults()
 
 	// Query alerts using the official client
@@ -140,7 +162,7 @@ func (a *Admitter) getActiveAlerts(ctx context.Context) ([]*models.GettableAlert
 }
 
 // findFiringAlerts filters alerts to find those that are currently firing and match our filters
-func (a *Admitter) findFiringAlerts(alerts []*models.GettableAlert) []*models.GettableAlert {
+func (a *admitter) findFiringAlerts(alerts []*models.GettableAlert) []*models.GettableAlert {
 	var firingAlerts []*models.GettableAlert
 
 	for _, alertPtr := range alerts {
@@ -164,7 +186,7 @@ func (a *Admitter) findFiringAlerts(alerts []*models.GettableAlert) []*models.Ge
 }
 
 // matchesFilters checks if an alert matches any of the configured filters
-func (a *Admitter) matchesFilters(alert *models.GettableAlert) bool {
+func (a *admitter) matchesFilters(alert *models.GettableAlert) bool {
 	if alert.Labels == nil {
 		return false
 	}
@@ -183,7 +205,7 @@ func (a *Admitter) matchesFilters(alert *models.GettableAlert) bool {
 }
 
 // getAlertNames extracts alert names from alerts for logging
-func (a *Admitter) getAlertNames(alerts []*models.GettableAlert) []string {
+func (a *admitter) getAlertNames(alerts []*models.GettableAlert) []string {
 	var names []string
 	for _, alert := range alerts {
 		if alert.Labels != nil {
@@ -196,7 +218,7 @@ func (a *Admitter) getAlertNames(alerts []*models.GettableAlert) []string {
 }
 
 // GetFiringAlerts returns the names of currently firing alerts that match our filters
-func (a *Admitter) GetFiringAlerts(ctx context.Context) ([]string, error) {
+func (a *admitter) GetFiringAlerts(ctx context.Context) ([]string, error) {
 	alerts, err := a.getActiveAlerts(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query alerts: %w", err)
@@ -215,7 +237,7 @@ func (a *Admitter) GetFiringAlerts(ctx context.Context) ([]string, error) {
 }
 
 // getAlertName extracts a meaningful name for the alert
-func (a *Admitter) getAlertName(alert *models.GettableAlert) string {
+func (a *admitter) getAlertName(alert *models.GettableAlert) string {
 	if alert.Labels == nil {
 		return "unknown-alert"
 	}
