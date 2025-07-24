@@ -7,7 +7,7 @@ spec:
   provider:
     alertManager:
       connection:
-        url: "http://alertmanager-operated.monitoring.svc.cluster.local:9093"
+        url: "http://alertmanager-operated.monitoring.svc.cluster.local:9093/api/v2"
         timeout: "10s"
       alertFilters:
         - alertNames:

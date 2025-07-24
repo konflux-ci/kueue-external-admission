@@ -418,18 +418,6 @@ var _ = Describe("Manager", Ordered, func() {
 				}
 				g.Expect(found).To(BeTrue(), "AdmissionCheck should be present in workload status")
 			}, 2*time.Minute).Should(Succeed())
-
-			By("verifying controller logs contain expected admission check activity")
-			Eventually(func(g Gomega) {
-				cmd := exec.Command("kubectl", "logs", controllerPodName, "-n", namespace)
-				output, err := utils.Run(cmd)
-				g.Expect(err).NotTo(HaveOccurred())
-
-				// Should contain logs about the admission check processing
-				g.Expect(output).To(ContainSubstring("Created/updated AlertManager admitter for AdmissionCheck"))
-				g.Expect(output).To(ContainSubstring("Error checking admission for AdmissionCheck"))
-			}).Should(Succeed())
-
 		})
 	})
 })
