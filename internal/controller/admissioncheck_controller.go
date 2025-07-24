@@ -37,7 +37,10 @@ import (
 	konfluxciv1alpha1 "github.com/konflux-ci/kueue-external-admission/api/konflux-ci.dev/v1alpha1"
 	"github.com/konflux-ci/kueue-external-admission/pkg/constant"
 	"github.com/konflux-ci/kueue-external-admission/pkg/watcher"
+	acutil "sigs.k8s.io/kueue/pkg/util/admissioncheck"
 )
+
+const admissionCheckConfigNameKey = "spec.parameters.name"
 
 // NewAdmissionCheckReconciler creates a new AdmissionCheckReconciler
 func NewAdmissionCheckReconciler(client client.Client, scheme *runtime.Scheme, admissionService *watcher.AdmissionService) *AdmissionCheckReconciler {
@@ -191,6 +194,19 @@ func (r *AdmissionCheckReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
+// SetupIndexer sets up an indexer for AdmissionChecks that reference an ExternalAdmissionConfig
+func SetupIndexer(ctx context.Context, fieldIndexer client.FieldIndexer) error {
+	return fieldIndexer.IndexField(
+		ctx,
+		&kueue.AdmissionCheck{},
+		admissionCheckConfigNameKey,
+		acutil.IndexerByConfigFunction(
+			constant.ControllerName,
+			konfluxciv1alpha1.GroupVersion.WithKind("ExternalAdmissionConfig"),
+		),
+	)
+}
+
 // findAdmissionChecksForConfig finds AdmissionChecks that should be reconciled
 // when an ExternalAdmissionConfig changes
 func (r *AdmissionCheckReconciler) findAdmissionChecksForConfig(ctx context.Context, obj client.Object) []reconcile.Request {
@@ -201,24 +217,18 @@ func (r *AdmissionCheckReconciler) findAdmissionChecksForConfig(ctx context.Cont
 
 	// Find all AdmissionChecks that reference this config
 	admissionChecks := &kueue.AdmissionCheckList{}
-	if err := r.List(ctx, admissionChecks); err != nil {
+	if err := r.List(ctx, admissionChecks, client.MatchingFields{admissionCheckConfigNameKey: config.Name}); err != nil {
 		return nil
 	}
 
 	var requests []reconcile.Request
 	for _, ac := range admissionChecks.Items {
-		// Check if this AdmissionCheck is managed by our controller and references this config
-		if ac.Spec.ControllerName == constant.ControllerName &&
-			ac.Spec.Parameters != nil &&
-			ac.Spec.Parameters.Name == config.Name {
-
-			requests = append(requests, reconcile.Request{
-				NamespacedName: client.ObjectKey{
-					Name:      ac.Name,
-					Namespace: ac.Namespace,
-				},
-			})
-		}
+		requests = append(requests, reconcile.Request{
+			NamespacedName: client.ObjectKey{
+				Name:      ac.Name,
+				Namespace: ac.Namespace,
+			},
+		})
 	}
 
 	return requests

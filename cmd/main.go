@@ -304,6 +304,13 @@ func main() {
 		os.Exit(1)
 	}
 
+	ctx := ctrl.SetupSignalHandler()
+	// Set up indexer for AdmissionChecks that reference an ExternalAdmissionConfig
+	if err := controller.SetupIndexer(ctx, mgr.GetFieldIndexer()); err != nil {
+		setupLog.Error(err, "unable to set up indexer")
+		os.Exit(1)
+	}
+
 	// Create alert monitor to watch for alert state changes
 	alertMonitor := watcher.NewAlertMonitor(
 		admissionService,
@@ -359,7 +366,7 @@ func main() {
 	}
 
 	setupLog.Info("starting manager")
-	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
+	if err := mgr.Start(ctx); err != nil {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
