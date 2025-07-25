@@ -6,6 +6,7 @@ metadata:
   namespace: monitoring
 spec:
   serviceAccountName: prometheus
+  serviceMonitorNamespaceSelector: {}
   serviceMonitorSelector:
     matchLabels:
       control-plane: controller-manager
