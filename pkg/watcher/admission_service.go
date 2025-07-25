@@ -38,12 +38,17 @@ func NewAdmissionService(logger logr.Logger) (*AdmissionService, <-chan event.Ge
 // SetAdmitter sets or updates an Admitter for a given AdmissionCheck
 func (s *AdmissionService) SetAdmitter(admissionCheckName string, admitter Admitter) {
 	s.admitters.Store(admissionCheckName, admitter)
+	admissionMetrics := NewAdmissionMetrics(admissionCheckName)
+	// Set initial status to true just to make sure that the metric is set
+	admissionMetrics.RecordAdmissionCheckStatus(true)
 	s.logger.Info("Set admitter for AdmissionCheck", "admissionCheck", admissionCheckName)
 }
 
 // RemoveAdmitter removes the Admitter for a given AdmissionCheck
 func (s *AdmissionService) RemoveAdmitter(admissionCheckName string) {
 	s.admitters.Delete(admissionCheckName)
+	admissionMetrics := NewAdmissionMetrics(admissionCheckName)
+	admissionMetrics.DeleteAdmissionCheckStatus()
 	s.logger.Info("Removed admitter for AdmissionCheck", "admissionCheck", admissionCheckName)
 }
 

@@ -93,3 +93,15 @@ func (m *AdmissionMetrics) RecordError(errorType string) {
 	// Don't update status gauge on error - let it keep the last known admission state
 	// Errors are tracked separately in admissionCheckErrors metric
 }
+
+func (m *AdmissionMetrics) RecordAdmissionCheckStatus(admitted bool) {
+	if admitted {
+		admissionCheckStatus.WithLabelValues(m.checkName).Set(1)
+	} else {
+		admissionCheckStatus.WithLabelValues(m.checkName).Set(0)
+	}
+}
+
+func (m *AdmissionMetrics) DeleteAdmissionCheckStatus() {
+	admissionCheckStatus.DeleteLabelValues(m.checkName)
+}
