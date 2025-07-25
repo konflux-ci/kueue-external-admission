@@ -11,11 +11,8 @@ spec:
         timeout: "10s"
       alertFilters:
         - alertNames:
-            - TestAlert
             - TestAlertAlwaysFiring
-      polling:
-        interval: "30s"
-        failureThreshold: 3
+      checkTTL: "45s"
 
 ---
 apiVersion: kueue.x-k8s.io/v1beta1
@@ -28,7 +25,33 @@ spec:
     apiGroup: konflux-ci.dev
     kind: ExternalAdmissionConfig
     name: test-alertmanager-config
+---
+apiVersion: konflux-ci.dev/v1alpha1
+kind: ExternalAdmissionConfig
+metadata:
+  name: test-alertmanager-config-2
+spec:
+  provider:
+    alertManager:
+      connection:
+        url: "http://alertmanager-operated.monitoring.svc.cluster.local:9093/api/v2"
+        timeout: "10s"
+      alertFilters:
+        - alertNames:
+            - TestAlert
+      checkTTL: "45s"
 
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: AdmissionCheck
+metadata:
+  name: test-alertmanager-check-2
+spec:
+  controllerName: konflux-ci.dev/kueue-external-admission
+  parameters:
+    apiGroup: konflux-ci.dev
+    kind: ExternalAdmissionConfig
+    name: test-alertmanager-config-2
 ---
 apiVersion: kueue.x-k8s.io/v1beta1
 kind: ResourceFlavor
