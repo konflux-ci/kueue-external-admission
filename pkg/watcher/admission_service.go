@@ -172,6 +172,8 @@ func (s *AdmissionService) manageAdmitters(ctx context.Context, changeRequests c
 	}
 
 	setAdmitter := func(ctx context.Context, admissionCheckName string, admitter Admitter) {
+		// need to handle a case where the admitter is already set
+		
 		ctx, cancel := context.WithCancel(ctx)
 		s.admitters.Store(
 			admissionCheckName,

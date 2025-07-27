@@ -106,6 +106,7 @@ func (r *AdmissionCheckReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 
 	// Register the admitter with the shared service (using interface)
+	// TODO: handle a case where the admitter is already set
 	r.admissionService.SetAdmitter(req.Name, admitter)
 	log.Info("Created/updated admitter for AdmissionCheck", "admissionCheck", req.Name)
 
