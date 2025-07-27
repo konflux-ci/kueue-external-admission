@@ -128,18 +128,21 @@ func (s *AdmissionService) readAsyncAdmissionResults(
 			}
 			// TODO:compare the entire admission result struct instead of just the should admit.
 			// shouldAdmit might be the same, but the reason would be different.
-			if result.Error != nil &&
-				result.AdmissionResult.ShouldAdmit() != admitterEntry.LastResult.AdmissionResult.ShouldAdmit() {
+
+			lastResult := admitterEntry.LastResult.AdmissionResult.ShouldAdmit()
+			changed := result.AdmissionResult.ShouldAdmit() != lastResult
+			// Update the last result
+			admitterEntry.LastResult = result
+
+			if result.Error != nil && changed {
 				s.logger.Info(
 					"Admission result for %s changed from %v to %v. emitting event",
 					"admissionCheck", admissionCheckName,
-					admitterEntry.LastResult.AdmissionResult.ShouldAdmit(),
+					lastResult,
 					result.AdmissionResult.ShouldAdmit(),
 				)
 				admissionResultChangedChannel <- result.AdmissionResult
 			}
-
-			admitterEntry.LastResult = result
 			admissionMetrics.RecordAdmissionCheckStatus(result.AdmissionResult.ShouldAdmit())
 		}
 	}
