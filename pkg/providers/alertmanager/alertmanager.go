@@ -147,7 +147,7 @@ func (a *admitter) shouldAdmit(ctx context.Context) (watcher.AdmissionResult, er
 	alerts, err := a.getActiveAlerts(ctx)
 	if err != nil {
 		a.logger.Error(err, "Failed to get alerts from AlertManager")
-		return nil, err
+		return builder.Build(), err
 	}
 
 	// If no alert filters are specified, admit by default

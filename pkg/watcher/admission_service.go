@@ -108,17 +108,22 @@ func (s *AdmissionService) readAsyncAdmissionResults(
 				"providerDetails", result.AdmissionResult.GetProviderDetails(),
 				"error", result.Error,
 			)
-			if result.Error != nil {
-				s.logger.Error(result.Error, "Error in async admission result")
-				continue
-			}
 			// TODO: this is a hack to get the admission check name from the provider details
 			// we should use a more robust way to get the admission check name
 			// I think it's needed to to create aggregated provider details struct in addition
 			admissionCheckName := slices.Collect(maps.Keys(result.AdmissionResult.GetProviderDetails()))[0]
+
 			admitterEntry, exists := s.getAdmitterEntry(admissionCheckName)
 			if !exists {
 				s.logger.Info("Admitter not found, skip storing last sync result", "admissionCheck", admissionCheckName)
+				continue
+			}
+
+			admissionMetrics := NewAdmissionMetrics(admissionCheckName)
+
+			if result.Error != nil {
+				s.logger.Error(result.Error, "Error in async admission result")
+				admissionMetrics.RecordError("admission_check_failed")
 				continue
 			}
 			// TODO:compare the entire admission result struct instead of just the should admit.
@@ -132,9 +137,10 @@ func (s *AdmissionService) readAsyncAdmissionResults(
 					result.AdmissionResult.ShouldAdmit(),
 				)
 				admissionResultChangedChannel <- result.AdmissionResult
-
-				admitterEntry.LastResult = result
 			}
+
+			admitterEntry.LastResult = result
+			admissionMetrics.RecordAdmissionCheckStatus(result.AdmissionResult.ShouldAdmit())
 		}
 	}
 }
@@ -234,9 +240,6 @@ func (s *AdmissionService) ShouldAdmitWorkload(ctx context.Context, checkNames [
 		err := admitterEntry.LastResult.Error
 		if err != nil {
 			s.logger.Error(err, "Failed to check admission", "check", checkName)
-
-			// Record error metrics
-			admissionMetrics.RecordError("admission_check_failed")
 
 			return nil, fmt.Errorf("failed to check admission for %s: %w", checkName, err)
 		}

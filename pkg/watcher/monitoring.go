@@ -76,10 +76,8 @@ func (m *AdmissionMetrics) RecordDecision(admitted bool) {
 
 	// Update current status
 	if admitted {
-		admissionCheckStatus.WithLabelValues(m.checkName).Set(1)
 		admissionCheckDecisionsTotal.WithLabelValues(m.checkName, "admitted").Inc()
 	} else {
-		admissionCheckStatus.WithLabelValues(m.checkName).Set(0)
 		admissionCheckDecisionsTotal.WithLabelValues(m.checkName, "denied").Inc()
 	}
 
