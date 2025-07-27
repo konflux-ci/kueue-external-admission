@@ -239,12 +239,16 @@ func (s *AdmissionService) ShouldAdmitWorkload(ctx context.Context, checkNames [
 		// Create metrics recorder for this admission check
 		admissionMetrics := NewAdmissionMetrics(checkName)
 
-		shouldAdmit := admitterEntry.LastResult.AdmissionResult.ShouldAdmit()
-		err := admitterEntry.LastResult.Error
-		if err != nil {
-			s.logger.Error(err, "Failed to check admission", "check", checkName)
+		shouldAdmit := false
+		var err error
+		if admitterEntry.LastResult != (AsyncAdmissionResult{}) {
+			shouldAdmit = admitterEntry.LastResult.AdmissionResult.ShouldAdmit()
+			err = admitterEntry.LastResult.Error
+			if err != nil {
+				s.logger.Error(err, "Failed to check admission", "check", checkName)
 
-			return nil, fmt.Errorf("failed to check admission for %s: %w", checkName, err)
+				return nil, fmt.Errorf("failed to check admission for %s: %w", checkName, err)
+			}
 		}
 
 		// Record successful admission decision
