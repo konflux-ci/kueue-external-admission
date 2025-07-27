@@ -36,21 +36,26 @@ import (
 func init() {
 	// Register this provider's factory with the watcher package
 	watcher.RegisterProviderFactory("alertmanager",
-		func(config *konfluxciv1alpha1.ExternalAdmissionConfig, logger logr.Logger) (watcher.Admitter, error) {
+		func(
+			config *konfluxciv1alpha1.ExternalAdmissionConfig,
+			logger logr.Logger,
+			admissionCheckName string,
+		) (watcher.Admitter, error) {
 			if config.Spec.Provider.AlertManager == nil {
 				return nil, fmt.Errorf("AlertManager provider config is nil")
 			}
-			return NewAdmitter(config.Spec.Provider.AlertManager, logger)
+			return NewAdmitter(config.Spec.Provider.AlertManager, logger, admissionCheckName)
 		})
 }
 
 // admitter implements the watcher.admitter interface using AlertManager API
 type admitter struct {
-	client       *alertclient.AlertmanagerAPI
-	config       *konfluxciv1alpha1.AlertManagerProviderConfig
-	alertFilters []string
-	logger       logr.Logger
-	cache        *watcher.Cache[watcher.AdmissionResult]
+	client             *alertclient.AlertmanagerAPI
+	config             *konfluxciv1alpha1.AlertManagerProviderConfig
+	alertFilters       []string
+	logger             logr.Logger
+	cache              *watcher.Cache[watcher.AdmissionResult]
+	admissionCheckName string
 }
 
 var _ watcher.Admitter = &admitter{}
@@ -59,6 +64,7 @@ var _ watcher.Admitter = &admitter{}
 func NewAdmitter(
 	config *konfluxciv1alpha1.AlertManagerProviderConfig,
 	logger logr.Logger,
+	admissionCheckName string,
 ) (watcher.Admitter, error) {
 	// Parse the AlertManager URL
 	u, err := url.Parse(config.Connection.URL)
@@ -86,11 +92,12 @@ func NewAdmitter(
 	}
 
 	return &admitter{
-		client:       client,
-		config:       config,
-		alertFilters: allAlertNames,
-		logger:       logger,
-		cache:        watcher.NewCache[watcher.AdmissionResult](config.CheckTTL.Duration),
+		client:             client,
+		config:             config,
+		alertFilters:       allAlertNames,
+		logger:             logger,
+		cache:              watcher.NewCache[watcher.AdmissionResult](config.CheckTTL.Duration),
+		admissionCheckName: admissionCheckName,
 	}, nil
 }
 
@@ -135,7 +142,7 @@ func (a *admitter) ShouldAdmit(ctx context.Context) (watcher.AdmissionResult, er
 // Returns an AdmissionResult indicating whether to admit and any firing alerts
 func (a *admitter) shouldAdmit(ctx context.Context) (watcher.AdmissionResult, error) {
 	builder := watcher.NewAdmissionResult()
-	builder.AddProviderDetails("alertmanager", []string{})
+	builder.AddProviderDetails(a.admissionCheckName, []string{})
 
 	alerts, err := a.getActiveAlerts(ctx)
 	if err != nil {
@@ -153,7 +160,7 @@ func (a *admitter) shouldAdmit(ctx context.Context) (watcher.AdmissionResult, er
 	firingAlerts := a.findFiringAlerts(alerts)
 	if len(firingAlerts) > 0 {
 		alertNames := a.getAlertNames(firingAlerts)
-		builder.AddProviderDetails("alertmanager", alertNames)
+		builder.AddProviderDetails(a.admissionCheckName, alertNames)
 		builder.SetAdmissionDenied()
 	}
 

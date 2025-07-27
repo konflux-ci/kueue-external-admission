@@ -30,7 +30,11 @@ import (
 func init() {
 	// Register a mock AlertManager factory for testing
 	RegisterProviderFactory("alertmanager",
-		func(config *konfluxciv1alpha1.ExternalAdmissionConfig, logger logr.Logger) (Admitter, error) {
+		func(
+			config *konfluxciv1alpha1.ExternalAdmissionConfig,
+			logger logr.Logger,
+			admissionCheckName string,
+		) (Admitter, error) {
 			// Return a simple mock admitter for testing
 			return &mockTestAdmitter{}, nil
 		})
@@ -70,7 +74,7 @@ func TestNewAdmitter_AlertManagerProvider(t *testing.T) {
 		},
 	}
 
-	admitter, err := NewAdmitter(config, logr.Discard())
+	admitter, err := NewAdmitter(config, logr.Discard(), "test-admission-check")
 	Expect(err).ToNot(HaveOccurred(), "Expected no error creating AlertManager admitter")
 	Expect(admitter).ToNot(BeNil(), "Expected non-nil admitter")
 
@@ -91,7 +95,7 @@ func TestNewAdmitter_NoProviderConfigured(t *testing.T) {
 		},
 	}
 
-	admitter, err := NewAdmitter(config, logr.Discard())
+	admitter, err := NewAdmitter(config, logr.Discard(), "test-admission-check")
 	Expect(err).To(HaveOccurred(), "Expected error when no provider is configured")
 	Expect(admitter).To(BeNil(), "Expected nil admitter when error occurs")
 
@@ -101,7 +105,7 @@ func TestNewAdmitter_NoProviderConfigured(t *testing.T) {
 
 func TestNewAdmitter_NilConfig(t *testing.T) {
 	RegisterTestingT(t)
-	admitter, err := NewAdmitter(nil, logr.Discard())
+	admitter, err := NewAdmitter(nil, logr.Discard(), "test-admission-check")
 	Expect(err).To(HaveOccurred(), "Expected error when config is nil")
 	Expect(admitter).To(BeNil(), "Expected nil admitter when error occurs")
 

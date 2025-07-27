@@ -99,7 +99,7 @@ func (r *AdmissionCheckReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 
 	// Create or update Admitter using factory function
-	admitter, err := r.admitterFactory(externalConfig, log.WithValues("admissionCheck", req.Name))
+	admitter, err := r.admitterFactory(externalConfig, log.WithValues("admissionCheck", req.Name), req.Name)
 	if err != nil {
 		log.Error(err, "Failed to create admitter")
 		return r.updateAdmissionCheckStatus(ctx, ac, false, "failed to create admitter: "+err.Error())

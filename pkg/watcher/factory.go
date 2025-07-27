@@ -25,7 +25,7 @@ import (
 )
 
 // AdmitterFactory is a function type for creating admitters
-type AdmitterFactory func(*konfluxciv1alpha1.ExternalAdmissionConfig, logr.Logger) (Admitter, error)
+type AdmitterFactory func(*konfluxciv1alpha1.ExternalAdmissionConfig, logr.Logger, string) (Admitter, error)
 
 // providerFactories holds the registered provider factories
 var providerFactories = make(map[string]AdmitterFactory)
@@ -36,7 +36,11 @@ func RegisterProviderFactory(providerType string, factory AdmitterFactory) {
 }
 
 // NewAdmitter creates an Admitter based on the provider configuration in ExternalAdmissionConfig
-func NewAdmitter(config *konfluxciv1alpha1.ExternalAdmissionConfig, logger logr.Logger) (Admitter, error) {
+func NewAdmitter(
+	config *konfluxciv1alpha1.ExternalAdmissionConfig,
+	logger logr.Logger,
+	admissionCheckName string,
+) (Admitter, error) {
 	if config == nil {
 		return nil, fmt.Errorf("config cannot be nil")
 	}
@@ -47,7 +51,7 @@ func NewAdmitter(config *konfluxciv1alpha1.ExternalAdmissionConfig, logger logr.
 	switch {
 	case provider.AlertManager != nil:
 		if factory, exists := providerFactories["alertmanager"]; exists {
-			return factory(config, logger)
+			return factory(config, logger, admissionCheckName)
 		}
 		return nil, fmt.Errorf("alertmanager provider factory not registered")
 	default:
