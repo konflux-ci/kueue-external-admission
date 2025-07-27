@@ -50,7 +50,7 @@ func NewMonitor(
 
 // Start implements manager.Runnable interface
 func (m *Monitor) Start(ctx context.Context) error {
-	m.logger.Info("Starting monitor", "period", m.period)
+	m.logger.Info("Starting monitor")
 	m.monitorLoop(ctx)
 	return nil
 }

@@ -135,6 +135,7 @@ func (a *admitter) ShouldAdmit(ctx context.Context) (watcher.AdmissionResult, er
 // Returns an AdmissionResult indicating whether to admit and any firing alerts
 func (a *admitter) shouldAdmit(ctx context.Context) (watcher.AdmissionResult, error) {
 	builder := watcher.NewAdmissionResult()
+	builder.AddProviderDetails("alertmanager", []string{})
 
 	alerts, err := a.getActiveAlerts(ctx)
 	if err != nil {
@@ -152,7 +153,8 @@ func (a *admitter) shouldAdmit(ctx context.Context) (watcher.AdmissionResult, er
 	firingAlerts := a.findFiringAlerts(alerts)
 	if len(firingAlerts) > 0 {
 		alertNames := a.getAlertNames(firingAlerts)
-		builder.AddProviderDetails("alertmanager", alertNames).SetAdmissionDenied()
+		builder.AddProviderDetails("alertmanager", alertNames)
+		builder.SetAdmissionDenied()
 	}
 
 	result := builder.Build()

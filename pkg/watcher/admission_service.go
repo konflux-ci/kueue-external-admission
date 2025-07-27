@@ -67,6 +67,7 @@ func NewAdmissionService(logger logr.Logger) (*AdmissionService, <-chan event.Ge
 }
 
 func (s *AdmissionService) Start(ctx context.Context) error {
+	s.logger.Info("Starting AdmissionService")
 	go s.manageAdmitters(ctx, s.admitterChangeRequests)
 	go s.readAsyncAdmissionResults(ctx, s.asyncAdmissionResults, s.admissionResultChanged)
 
