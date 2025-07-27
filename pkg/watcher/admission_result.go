@@ -52,9 +52,7 @@ func (b *admissionResultBuilder) SetAdmissionAllowed() AdmissionResultBuilder {
 }
 
 func (b *admissionResultBuilder) AddProviderDetails(checkName string, details []string) AdmissionResultBuilder {
-	if len(details) > 0 {
-		b.providerDetails[checkName] = details
-	}
+	b.providerDetails[checkName] = details
 	return b
 }
 

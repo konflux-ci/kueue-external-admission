@@ -166,7 +166,7 @@ func (a *admitter) shouldAdmit(ctx context.Context) (watcher.AdmissionResult, er
 
 	result := builder.Build()
 
-	a.logger.V(1).Info("AlertManager admission check completed",
+	a.logger.Info("AlertManager admission check completed",
 		"shouldAdmit", result.ShouldAdmit(),
 		"firingAlerts", len(firingAlerts),
 	)
