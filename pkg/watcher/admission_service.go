@@ -3,20 +3,19 @@ package watcher
 import (
 	"context"
 	"fmt"
-	"maps"
 	"reflect"
-	"slices"
 	"sync"
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/konflux-ci/kueue-external-admission/pkg/watcher/result"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 )
 
 // Admitter determines whether admission should be allowed
 type Admitter interface {
-	ShouldAdmit(context.Context) (AdmissionResult, error)
-	Sync(context.Context, chan<- AsyncAdmissionResult) error
+	ShouldAdmit(context.Context) (result.AdmissionResult, error)
+	Sync(context.Context, chan<- result.AsyncAdmissionResult) error
 }
 
 type AdmitterChangeRequestType = string
@@ -38,7 +37,7 @@ type AdmitterEntry struct {
 	AdmissionCheckName string
 	Cancel             context.CancelFunc
 	// TODO: consider to use a pointer
-	LastResult AsyncAdmissionResult
+	LastResult result.AsyncAdmissionResult
 }
 
 // AdmissionService manages Admitters for different AdmissionChecks
@@ -49,9 +48,9 @@ type AdmissionService struct {
 	logger    logr.Logger
 	// TODO: remove this channel it doesn't belong here. should pass it to the monitor directly from main
 	eventsChannel          chan<- event.GenericEvent
-	admitterChangeRequests chan AdmitterChangeRequest // Channel for notifying about admitter change requests
-	asyncAdmissionResults  chan AsyncAdmissionResult  // Channel for notifying about async admission results
-	admissionResultChanged chan AdmissionResult
+	admitterChangeRequests chan AdmitterChangeRequest       // Channel for notifying about admitter change requests
+	asyncAdmissionResults  chan result.AsyncAdmissionResult // Channel for notifying about async admission results
+	admissionResultChanged chan result.AdmissionResult
 }
 
 // NewAdmissionService creates a new AdmissionService
@@ -63,7 +62,7 @@ func NewAdmissionService(logger logr.Logger) (*AdmissionService, <-chan event.Ge
 		// sync.Map requires no initialization - zero value is ready to use
 		logger:                 logger,
 		eventsChannel:          eventsCh,
-		asyncAdmissionResults:  make(chan AsyncAdmissionResult),
+		asyncAdmissionResults:  make(chan result.AsyncAdmissionResult),
 		admitterChangeRequests: make(chan AdmitterChangeRequest),
 	}, eventsCh
 }
@@ -95,25 +94,22 @@ func (s *AdmissionService) RemoveAdmitter(admissionCheckName string) {
 
 func (s *AdmissionService) readAsyncAdmissionResults(
 	ctx context.Context,
-	asyncAdmissionResults <-chan AsyncAdmissionResult,
-	admissionResultChangedChannel chan<- AdmissionResult,
+	asyncAdmissionResults <-chan result.AsyncAdmissionResult,
+	admissionResultChangedChannel chan<- result.AdmissionResult,
 ) {
 	for {
 		select {
 		case <-ctx.Done():
 			s.logger.Info("Stopping readAsyncAdmissionResults, context done")
 			return
-		case result := <-asyncAdmissionResults:
+		case adr := <-asyncAdmissionResults:
 			s.logger.Info(
 				"Received async admission result",
-				"result", result.AdmissionResult.ShouldAdmit(),
-				"providerDetails", result.AdmissionResult.GetProviderDetails(),
-				"error", result.Error,
+				"result", adr.AdmissionResult.ShouldAdmit(),
+				"details", adr.AdmissionResult.Details(),
+				"error", adr.Error,
 			)
-			// TODO: this is a hack to get the admission check name from the provider details
-			// we should use a more robust way to get the admission check name
-			// I think it's needed to to create aggregated provider details struct in addition
-			admissionCheckName := slices.Collect(maps.Keys(result.AdmissionResult.GetProviderDetails()))[0]
+			admissionCheckName := adr.AdmissionResult.CheckName()
 
 			admitterEntry, exists := s.getAdmitterEntry(admissionCheckName)
 			if !exists {
@@ -123,8 +119,8 @@ func (s *AdmissionService) readAsyncAdmissionResults(
 
 			admissionMetrics := NewAdmissionMetrics(admissionCheckName)
 
-			if result.Error != nil {
-				s.logger.Error(result.Error, "Error in async admission result")
+			if adr.Error != nil {
+				s.logger.Error(adr.Error, "Error in async admission result")
 				admissionMetrics.RecordError("admission_check_failed")
 				continue
 			}
@@ -132,28 +128,28 @@ func (s *AdmissionService) readAsyncAdmissionResults(
 			// shouldAdmit might be the same, but the reason would be different.
 
 			lastResult := false
-			if admitterEntry.LastResult != (AsyncAdmissionResult{}) {
+			if admitterEntry.LastResult != (result.AsyncAdmissionResult{}) {
 				lastResult = admitterEntry.LastResult.AdmissionResult.ShouldAdmit()
 			}
-			changed := result.AdmissionResult.ShouldAdmit() != lastResult
+			changed := adr.AdmissionResult.ShouldAdmit() != lastResult
 			// Update the last result
-			admitterEntry.LastResult = result
+			admitterEntry.LastResult = adr
 
-			if result.Error != nil && changed {
+			if adr.Error != nil && changed {
 				s.logger.Info(
 					"Admission result for %s changed from %v to %v. emitting event",
 					"admissionCheck", admissionCheckName,
 					lastResult,
-					result.AdmissionResult.ShouldAdmit(),
+					adr.AdmissionResult.ShouldAdmit(),
 				)
-				admissionResultChangedChannel <- result.AdmissionResult
+				admissionResultChangedChannel <- adr.AdmissionResult
 			}
-			admissionMetrics.RecordAdmissionCheckStatus(result.AdmissionResult.ShouldAdmit())
+			admissionMetrics.RecordAdmissionCheckStatus(adr.AdmissionResult.ShouldAdmit())
 		}
 	}
 }
 
-func (s *AdmissionService) AdmissionResultChanged() <-chan AdmissionResult {
+func (s *AdmissionService) AdmissionResultChanged() <-chan result.AdmissionResult {
 	return s.admissionResultChanged
 }
 
@@ -249,10 +245,10 @@ func (s *AdmissionService) getAdmitterEntry(admissionCheckName string) (Admitter
 
 // ShouldAdmitWorkload aggregates admission decisions from multiple admitters
 // it uses the last result from the admitters to determine the admission decision
-func (s *AdmissionService) ShouldAdmitWorkload(ctx context.Context, checkNames []string) (AdmissionResult, error) {
+func (s *AdmissionService) ShouldAdmitWorkload(ctx context.Context, checkNames []string) (result.AdmissionResult, error) {
 	s.logger.Info("Checking admission for workload", "checks", checkNames)
 
-	builder := NewAdmissionResult()
+	builder := result.NewAdmissionResultBuilder()
 	builder.SetAdmissionAllowed()
 
 	for _, checkName := range checkNames {
@@ -260,32 +256,30 @@ func (s *AdmissionService) ShouldAdmitWorkload(ctx context.Context, checkNames [
 		if !exists {
 			continue
 		}
-		// Create metrics recorder for this admission check
-		admissionMetrics := NewAdmissionMetrics(checkName)
 
 		shouldAdmit := false
-		var err error
-		if admitterEntry.LastResult != (AsyncAdmissionResult{}) {
-			shouldAdmit = admitterEntry.LastResult.AdmissionResult.ShouldAdmit()
-			err = admitterEntry.LastResult.Error
+		if admitterEntry.LastResult != (result.AsyncAdmissionResult{}) {
+			err := admitterEntry.LastResult.Error
 			if err != nil {
 				s.logger.Error(err, "Failed to check admission", "check", checkName)
-
 				return nil, fmt.Errorf("failed to check admission for %s: %w", checkName, err)
 			}
+			shouldAdmit = admitterEntry.LastResult.AdmissionResult.ShouldAdmit()
+			// Aggregate provider details from all checks
+			builder.AddDetails(admitterEntry.LastResult.AdmissionResult.Details()...)
+		} else {
+			s.logger.Info("No last result found for AdmissionCheck", "check", checkName)
+			builder.AddDetails("No last result found for AdmissionCheck. Denied by default.")
+			shouldAdmit = false
+
 		}
 
-		// Record successful admission decision
+		// Record metrics
+		admissionMetrics := NewAdmissionMetrics(checkName)
 		admissionMetrics.RecordDecision(shouldAdmit)
 
 		if !shouldAdmit {
 			builder.SetAdmissionDenied()
-		}
-
-		// Aggregate provider details from all checks
-		for _, details := range admitterEntry.LastResult.AdmissionResult.GetProviderDetails() {
-			builder.AddProviderDetails(checkName, details)
-
 		}
 	}
 
@@ -293,7 +287,7 @@ func (s *AdmissionService) ShouldAdmitWorkload(ctx context.Context, checkNames [
 
 	s.logger.Info("Workload admission decision completed",
 		"shouldAdmit", finalResult.ShouldAdmit(),
-		"providerDetails", finalResult.GetProviderDetails(),
+		"details", finalResult.Details(),
 		"checksEvaluated", len(checkNames),
 	)
 

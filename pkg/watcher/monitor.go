@@ -13,6 +13,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 
 	"github.com/konflux-ci/kueue-external-admission/pkg/constant"
+	"github.com/konflux-ci/kueue-external-admission/pkg/watcher/result"
 )
 
 // Lister provides a way to list objects that need admission checking
@@ -70,7 +71,7 @@ func (m *Monitor) monitorLoop(ctx context.Context) {
 }
 
 // checkAndEmitEvents checks current alert states and emits events for changed workloads
-func (m *Monitor) checkAndEmitEvents(ctx context.Context, admissionResult AdmissionResult) {
+func (m *Monitor) checkAndEmitEvents(ctx context.Context, admissionResult result.AdmissionResult) {
 	// Get all workloads that need admission checks
 	workloads, err := m.lister.List(ctx)
 	if err != nil {

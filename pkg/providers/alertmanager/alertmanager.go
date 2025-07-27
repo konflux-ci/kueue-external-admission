@@ -31,6 +31,7 @@ import (
 
 	konfluxciv1alpha1 "github.com/konflux-ci/kueue-external-admission/api/konflux-ci.dev/v1alpha1"
 	"github.com/konflux-ci/kueue-external-admission/pkg/watcher"
+	"github.com/konflux-ci/kueue-external-admission/pkg/watcher/result"
 )
 
 func init() {
@@ -54,7 +55,6 @@ type admitter struct {
 	config             *konfluxciv1alpha1.AlertManagerProviderConfig
 	alertFilters       []string
 	logger             logr.Logger
-	cache              *watcher.Cache[watcher.AdmissionResult]
 	admissionCheckName string
 }
 
@@ -96,14 +96,13 @@ func NewAdmitter(
 		config:             config,
 		alertFilters:       allAlertNames,
 		logger:             logger,
-		cache:              watcher.NewCache[watcher.AdmissionResult](config.CheckTTL.Duration),
 		admissionCheckName: admissionCheckName,
 	}, nil
 }
 
 // Sync runs the admission check in a loop and sends the results to the channel
 // the call doesn't block
-func (a *admitter) Sync(ctx context.Context, results chan<- watcher.AsyncAdmissionResult) error {
+func (a *admitter) Sync(ctx context.Context, results chan<- result.AsyncAdmissionResult) error {
 	go func() {
 		ticker := time.NewTicker(a.config.CheckTTL.Duration)
 		defer ticker.Stop()
@@ -118,12 +117,12 @@ func (a *admitter) Sync(ctx context.Context, results chan<- watcher.AsyncAdmissi
 				result, err := a.shouldAdmit(ctx)
 				if err != nil {
 					a.logger.Error(err, "Failed to get alerts from AlertManager")
-					results <- watcher.AsyncAdmissionResult{
+					results <- result.AsyncAdmissionResult{
 						AdmissionResult: nil,
 						Error:           err,
 					}
 				} else {
-					results <- watcher.AsyncAdmissionResult{
+					results <- result.AsyncAdmissionResult{
 						AdmissionResult: result,
 						Error:           nil,
 					}
@@ -134,15 +133,11 @@ func (a *admitter) Sync(ctx context.Context, results chan<- watcher.AsyncAdmissi
 	return nil
 }
 
-func (a *admitter) ShouldAdmit(ctx context.Context) (watcher.AdmissionResult, error) {
-	return a.cache.GetOrUpdate(ctx, a.shouldAdmit)
-}
-
 // ShouldAdmit implements watcher.Admitter interface
 // Returns an AdmissionResult indicating whether to admit and any firing alerts
-func (a *admitter) shouldAdmit(ctx context.Context) (watcher.AdmissionResult, error) {
-	builder := watcher.NewAdmissionResult()
-	builder.AddProviderDetails(a.admissionCheckName, []string{})
+func (a *admitter) shouldAdmit(ctx context.Context) (result.AdmissionResult, error) {
+	builder := result.NewAdmissionResultBuilder(a.admissionCheckName)
+	builder.SetAdmissionDenied()
 
 	alerts, err := a.getActiveAlerts(ctx)
 	if err != nil {
@@ -160,7 +155,7 @@ func (a *admitter) shouldAdmit(ctx context.Context) (watcher.AdmissionResult, er
 	firingAlerts := a.findFiringAlerts(alerts)
 	if len(firingAlerts) > 0 {
 		alertNames := a.getAlertNames(firingAlerts)
-		builder.AddProviderDetails(a.admissionCheckName, alertNames)
+		builder.AddDetails(alertNames...)
 		builder.SetAdmissionDenied()
 	}
 
