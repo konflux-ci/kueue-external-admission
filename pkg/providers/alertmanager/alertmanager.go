@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"time"
 
 	"github.com/go-logr/logr"
 	httptransport "github.com/go-openapi/runtime/client"
@@ -91,6 +92,39 @@ func NewAdmitter(
 		logger:       logger,
 		cache:        watcher.NewCache[watcher.AdmissionResult](config.CheckTTL.Duration),
 	}, nil
+}
+
+// Sync runs the admission check in a loop and sends the results to the channel
+// the call doesn't block
+func (a *admitter) Sync(ctx context.Context, results chan<- watcher.AsyncAdmissionResult) error {
+	go func() {
+		ticker := time.NewTicker(a.config.CheckTTL.Duration)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				a.logger.Info("AlertManager admission check cancelled by context")
+				return
+			case <-ticker.C:
+				a.logger.Info("Running AlertManager admission check")
+				result, err := a.shouldAdmit(ctx)
+				if err != nil {
+					a.logger.Error(err, "Failed to get alerts from AlertManager")
+					results <- watcher.AsyncAdmissionResult{
+						AdmissionResult: nil,
+						Error:           err,
+					}
+				} else {
+					results <- watcher.AsyncAdmissionResult{
+						AdmissionResult: result,
+						Error:           nil,
+					}
+				}
+			}
+		}
+	}()
+	return nil
 }
 
 func (a *admitter) ShouldAdmit(ctx context.Context) (watcher.AdmissionResult, error) {

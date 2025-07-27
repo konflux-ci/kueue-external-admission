@@ -57,35 +57,30 @@ func (m *Monitor) Start(ctx context.Context) error {
 
 // monitorLoop runs the monitoring loop
 func (m *Monitor) monitorLoop(ctx context.Context) {
-	ticker := time.NewTicker(m.period)
-	defer ticker.Stop()
-
-	// Track previous state to detect changes
-	previousStates := make(map[string]bool) // workloadKey -> shouldAdmit
-
 	for {
 		select {
 		case <-ctx.Done():
 			m.logger.Info("Monitor stopped due to context cancellation")
 			return
-		case <-ticker.C:
-			m.checkAndEmitEvents(ctx, previousStates)
+		case admissionResult := <-m.admissionService.AdmissionResultChanged():
+			m.logger.Info("monitor: Admission result changed", "admissionResult", admissionResult)
+			m.checkAndEmitEvents(ctx, admissionResult)
 		}
 	}
 }
 
 // checkAndEmitEvents checks current alert states and emits events for changed workloads
-func (m *Monitor) checkAndEmitEvents(ctx context.Context, previousStates map[string]bool) {
-	m.logger.Info("Periodically checking and emitting events")
+func (m *Monitor) checkAndEmitEvents(ctx context.Context, admissionResult AdmissionResult) {
 	// Get all workloads that need admission checks
 	workloads, err := m.lister.List(ctx)
 	if err != nil {
 		m.logger.Error(err, "Failed to list workloads")
 		return
 	}
-
-	currentStates := make(map[string]bool)
-
+	// TODO: we should iterate over all the admission checks the admission service has
+	// and get the workloads for each one of them.
+	// UPDATE: since we now know which admission check changed, we can emit events for the workloads that are affected by that change.
+	filteredWorkloads := make(map[*kueue.Workload]bool)
 	for _, obj := range workloads {
 		wl, ok := obj.(*kueue.Workload)
 		if !ok {
@@ -95,8 +90,6 @@ func (m *Monitor) checkAndEmitEvents(ctx context.Context, previousStates map[str
 		if workload.IsAdmitted(wl) {
 			continue
 		}
-
-		workloadKey := client.ObjectKeyFromObject(wl).String()
 
 		// Get admission checks for this workload (using the controller name constant)
 		relevantChecks, err := admissioncheck.FilterForController(
@@ -114,44 +107,22 @@ func (m *Monitor) checkAndEmitEvents(ctx context.Context, previousStates map[str
 			continue
 		}
 
-		// Check admission using the same mechanism as the workload controller
-		admissionResult, err := m.admissionService.ShouldAdmitWorkload(ctx, relevantChecks)
-		if err != nil {
-			m.logger.Error(err, "Failed to check admission state", "workload", wl.Name)
-			continue
-		}
-
-		currentState := admissionResult.ShouldAdmit()
-		currentStates[workloadKey] = currentState
-
-		// Compare with previous state and emit event if changed
-		if prevState, existed := previousStates[workloadKey]; !existed || prevState != currentState {
-			m.logger.Info("Admission state changed for workload, emitting reconcile event",
-				"workload", wl.Name,
-				"namespace", wl.Namespace,
-				"previousState", prevState,
-				"currentState", currentState)
-
-			// Emit generic event to trigger workload reconciliation
-			select {
-			case m.admissionService.eventsChannel <- event.GenericEvent{Object: wl}:
-				// Event sent successfully
-			default:
-				// Channel full, log warning but continue
-				m.logger.V(1).Info("Events channel full, skipping event", "workload", wl.Name)
+		// TODO: this is a hack to get the workloads that are affected by the admission check that changed.
+		// we should use an index instead.
+		for _, check := range wl.Status.AdmissionChecks {
+			if _, ok := admissionResult.GetProviderDetails()[check.Name]; ok {
+				filteredWorkloads[wl] = true
 			}
 		}
 	}
 
-	// Update previous states for next iteration
-	for k, v := range currentStates {
-		previousStates[k] = v
-	}
-
-	// Clean up states for workloads that no longer exist
-	for k := range previousStates {
-		if _, exists := currentStates[k]; !exists {
-			delete(previousStates, k)
+	for wl := range filteredWorkloads {
+		// Emit generic event to trigger workload reconciliation
+		select {
+		case m.admissionService.eventsChannel <- event.GenericEvent{Object: wl}:
+			m.logger.Info("Emitting event for workload", "workload", wl.Name)
+		default:
+			m.logger.Info("Events channel full, skipping event", "workload", wl.Name)
 		}
 	}
 }

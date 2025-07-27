@@ -44,6 +44,10 @@ func (m *mockTestAdmitter) ShouldAdmit(ctx context.Context) (AdmissionResult, er
 	return builder.Build(), nil
 }
 
+func (m *mockTestAdmitter) Sync(ctx context.Context, asyncAdmissionResults chan<- AsyncAdmissionResult) error {
+	return nil
+}
+
 func TestNewAdmitter_AlertManagerProvider(t *testing.T) {
 	RegisterTestingT(t)
 	config := &konfluxciv1alpha1.ExternalAdmissionConfig{

@@ -1,5 +1,11 @@
 package watcher
 
+// AsyncAdmissionResult is a result of an admission check that is returned asynchronously
+type AsyncAdmissionResult struct {
+	AdmissionResult AdmissionResult
+	Error           error
+}
+
 // AdmissionResult represents the result of an admission check
 type AdmissionResult interface {
 	ShouldAdmit() bool
