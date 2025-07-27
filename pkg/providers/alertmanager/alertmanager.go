@@ -114,7 +114,7 @@ func (a *admitter) Sync(ctx context.Context, results chan<- watcher.AsyncAdmissi
 				a.logger.Info("AlertManager admission check cancelled by context")
 				return
 			case <-ticker.C:
-				a.logger.Info("Running AlertManager admission check")
+				a.logger.Info("Starting sync iteration", "admissionCheck", a.admissionCheckName)
 				result, err := a.shouldAdmit(ctx)
 				if err != nil {
 					a.logger.Error(err, "Failed to get alerts from AlertManager")

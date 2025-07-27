@@ -102,7 +102,16 @@ func (s *AdmissionService) readAsyncAdmissionResults(
 			s.logger.Info("Stopping readAsyncAdmissionResults, context done")
 			return
 		case result := <-asyncAdmissionResults:
-			s.logger.Info("Received async admission result", "result", result)
+			s.logger.Info(
+				"Received async admission result",
+				"result", result.AdmissionResult.ShouldAdmit(),
+				"providerDetails", result.AdmissionResult.GetProviderDetails(),
+				"error", result.Error,
+			)
+			if result.Error != nil {
+				s.logger.Error(result.Error, "Error in async admission result")
+				continue
+			}
 			// TODO: this is a hack to get the admission check name from the provider details
 			// we should use a more robust way to get the admission check name
 			// I think it's needed to to create aggregated provider details struct in addition
