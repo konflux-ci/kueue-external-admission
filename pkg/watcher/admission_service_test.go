@@ -36,6 +36,10 @@ func (m *mockAdmitter) ShouldAdmit(ctx context.Context) (AdmissionResult, error)
 	return builder.Build(), nil
 }
 
+func (m *mockAdmitter) Sync(ctx context.Context, asyncAdmissionResults chan<- AsyncAdmissionResult) error {
+	return nil
+}
+
 func newMockAdmitter(shouldAdmit bool, details map[string][]string) *mockAdmitter {
 	return &mockAdmitter{
 		shouldAdmit: shouldAdmit,
@@ -70,7 +74,7 @@ func TestAdmissionService_ConcurrentAccess(t *testing.T) {
 			service.SetAdmitter("concurrent-test", testAdmitter)
 
 			// Test retrieving admitter
-			retrievedAdmitter, exists := service.GetAdmitter("test-key")
+			retrievedAdmitter, exists := service.getAdmitterEntry("test-key")
 			Expect(exists).To(BeTrue(), "Expected to find admitter")
 			Expect(retrievedAdmitter).ToNot(BeNil(), "Expected non-nil retrieved admitter")
 
@@ -110,14 +114,15 @@ func TestAdmissionService_InterfaceFlexibility(t *testing.T) {
 	service.SetAdmitter("test-key", mockAdmitter)
 
 	// Retrieve as interface
-	retrievedAdmitter, exists := service.GetAdmitter("test-key")
+	retrievedAdmitter, exists := service.getAdmitterEntry("test-key")
 	Expect(exists).To(BeTrue(), "Expected to find admitter")
 	Expect(retrievedAdmitter).ToNot(BeNil(), "Expected non-nil retrieved admitter")
 
 	// Test the ShouldAdmit method through the interface
-	result, err := retrievedAdmitter.ShouldAdmit(context.Background())
-	Expect(err).ToNot(HaveOccurred(), "Expected no error from ShouldAdmit")
-	Expect(result.ShouldAdmit()).To(BeTrue(), "Expected workload to be admitted (no alerts)")
+	Expect(retrievedAdmitter.LastResult.AdmissionResult.ShouldAdmit()).To(
+		BeTrue(),
+		"Expected workload to be admitted (no alerts)",
+	)
 }
 
 func TestAdmissionService_RetrieveMultipleAdmitters(t *testing.T) {
@@ -133,8 +138,8 @@ func TestAdmissionService_RetrieveMultipleAdmitters(t *testing.T) {
 	service.SetAdmitter("key2", admitter2)
 
 	// Retrieve both
-	retrieved1, exists1 := service.GetAdmitter("key1")
-	retrieved2, exists2 := service.GetAdmitter("key2")
+	retrieved1, exists1 := service.getAdmitterEntry("key1")
+	retrieved2, exists2 := service.getAdmitterEntry("key2")
 
 	Expect(exists1).To(BeTrue(), "Expected to find first admitter")
 	Expect(exists2).To(BeTrue(), "Expected to find second admitter")

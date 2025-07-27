@@ -79,7 +79,8 @@ func (m *Monitor) checkAndEmitEvents(ctx context.Context, admissionResult Admiss
 	}
 	// TODO: we should iterate over all the admission checks the admission service has
 	// and get the workloads for each one of them.
-	// UPDATE: since we now know which admission check changed, we can emit events for the workloads that are affected by that change.
+	// UPDATE: since we now know which admission check changed,
+	// we can emit events for the workloads that are affected by that change.
 	filteredWorkloads := make(map[*kueue.Workload]bool)
 	for _, obj := range workloads {
 		wl, ok := obj.(*kueue.Workload)

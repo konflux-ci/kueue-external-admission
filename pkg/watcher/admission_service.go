@@ -6,6 +6,7 @@ import (
 	"maps"
 	"slices"
 	"sync"
+	"time"
 
 	"github.com/go-logr/logr"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -42,9 +43,10 @@ type AdmitterEntry struct {
 // Uses sync.Map internally but exposes only type-safe wrapper methods
 // This ensures consistent logging and proper type safety
 type AdmissionService struct {
-	admitters              sync.Map // private sync.Map - hides direct access to Store/Load/Delete/Range
-	logger                 logr.Logger
-	eventsChannel          chan<- event.GenericEvent  // TODO: remove this channel it doesn't belong here. should pass it to the monitor directly from main
+	admitters sync.Map // private sync.Map - hides direct access to Store/Load/Delete/Range
+	logger    logr.Logger
+	// TODO: remove this channel it doesn't belong here. should pass it to the monitor directly from main
+	eventsChannel          chan<- event.GenericEvent
 	admitterChangeRequests chan AdmitterChangeRequest // Channel for notifying about admitter change requests
 	asyncAdmissionResults  chan AsyncAdmissionResult  // Channel for notifying about async admission results
 	admissionResultChanged chan AdmissionResult
@@ -68,11 +70,9 @@ func (s *AdmissionService) Start(ctx context.Context) error {
 	go s.manageAdmitters(ctx, s.admitterChangeRequests)
 	go s.readAsyncAdmissionResults(ctx, s.asyncAdmissionResults, s.admissionResultChanged)
 
-	select {
-	case <-ctx.Done():
-		s.logger.Info("Stopping AdmissionService, context done")
-		return ctx.Err()
-	}
+	<-ctx.Done()
+	s.logger.Info("Stopping AdmissionService, context done")
+	return ctx.Err()
 }
 
 func (s *AdmissionService) SetAdmitter(admissionCheckName string, admitter Admitter) {
@@ -113,7 +113,8 @@ func (s *AdmissionService) readAsyncAdmissionResults(
 			}
 			// TODO:compare the entire admission result struct instead of just the should admit.
 			// shouldAdmit might be the same, but the reason would be different.
-			if result.Error != nil && result.AdmissionResult.ShouldAdmit() != admitterEntry.LastResult.AdmissionResult.ShouldAdmit() {
+			if result.Error != nil &&
+				result.AdmissionResult.ShouldAdmit() != admitterEntry.LastResult.AdmissionResult.ShouldAdmit() {
 				s.logger.Info(
 					"Admission result for %s changed from %v to %v. emitting event",
 					"admissionCheck", admissionCheckName,
@@ -132,20 +133,19 @@ func (s *AdmissionService) AdmissionResultChanged() <-chan AdmissionResult {
 	return s.admissionResultChanged
 }
 
-func (s *AdmissionService) manageAdmitters(ctx context.Context, changeRequests <-chan AdmitterChangeRequest) {
+func (s *AdmissionService) manageAdmitters(ctx context.Context, changeRequests chan AdmitterChangeRequest) {
 
-	removeAdmitter := func(admissionCheckName string) bool {
+	removeAdmitter := func(admissionCheckName string) {
 		entry, ok := s.admitters.Load(admissionCheckName)
 		if !ok {
 			s.logger.Error(fmt.Errorf("admitter not found"), "Admitter not found", "admissionCheck", admissionCheckName)
-			return true
+			return
 		}
 		entry.(AdmitterEntry).Cancel()
 		s.admitters.Delete(admissionCheckName)
 		admissionMetrics := NewAdmissionMetrics(admissionCheckName)
 		admissionMetrics.DeleteAdmissionCheckStatus()
 		s.logger.Info("Removed admitter for AdmissionCheck", "admissionCheck", admissionCheckName)
-		return true
 	}
 
 	setAdmitter := func(ctx context.Context, admissionCheckName string, admitter Admitter) {
@@ -157,7 +157,18 @@ func (s *AdmissionService) manageAdmitters(ctx context.Context, changeRequests <
 				Cancel:   cancel,
 			},
 		)
-		admitter.Sync(ctx, s.asyncAdmissionResults)
+		if err := admitter.Sync(ctx, s.asyncAdmissionResults); err != nil {
+			retryIn := 15 * time.Second
+			s.logger.Error(err, "Failed to sync admitter", "admissionCheck", admissionCheckName, "retryIn", retryIn)
+			go func() {
+				time.Sleep(retryIn)
+				changeRequests <- AdmitterChangeRequest{
+					AdmissionCheckName:        admissionCheckName,
+					AdmitterChangeRequestType: AdmitterChangeRequestAdd,
+					Admitter:                  admitter,
+				}
+			}()
+		}
 		admissionMetrics := NewAdmissionMetrics(admissionCheckName)
 		// Set initial status to true just to make sure that the metric is set
 		admissionMetrics.RecordAdmissionCheckStatus(true)
@@ -169,7 +180,8 @@ func (s *AdmissionService) manageAdmitters(ctx context.Context, changeRequests <
 		case <-ctx.Done():
 			s.logger.Info("Stopping ManageAdmitters, context done")
 			s.admitters.Range(func(key, value any) bool {
-				return removeAdmitter(key.(string))
+				removeAdmitter(key.(string))
+				return true
 			})
 			return
 		case changeRequest := <-changeRequests:
