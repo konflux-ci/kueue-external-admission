@@ -294,6 +294,11 @@ func main() {
 
 	// Initialize the admission service
 	admissionService, eventCh := watcher.NewAdmissionService(setupLog.WithName("admission-service"))
+	// Add admission service to manager so it starts/stops with the manager
+	if err = mgr.Add(admissionService); err != nil {
+		setupLog.Error(err, "unable to add admission service to manager")
+		os.Exit(1)
+	}
 
 	// Setup signal handler context
 	ctx := ctrl.SetupSignalHandler()

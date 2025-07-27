@@ -46,7 +46,7 @@ import (
 type WorkloadReconciler struct {
 	client           client.Client
 	Scheme           *runtime.Scheme
-	admissionService *watcher.AdmissionService // Shared service for admission checking
+	admissionService *watcher.AdmissionService // TODO: abstract with an interface.
 	clock            clock.Clock
 }
 
