@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"reflect"
 	"slices"
 	"sync"
 	"time"
@@ -156,15 +157,23 @@ func (s *AdmissionService) AdmissionResultChanged() <-chan AdmissionResult {
 	return s.admissionResultChanged
 }
 
+func (s *AdmissionService) loadAdmitterEntry(admissionCheckName string) (AdmitterEntry, bool) {
+	entry, ok := s.admitters.Load(admissionCheckName)
+	if !ok {
+		return AdmitterEntry{}, false
+	}
+	return entry.(AdmitterEntry), true
+}
+
 func (s *AdmissionService) manageAdmitters(ctx context.Context, changeRequests chan AdmitterChangeRequest) {
 
 	removeAdmitter := func(admissionCheckName string) {
-		entry, ok := s.admitters.Load(admissionCheckName)
+		entry, ok := s.loadAdmitterEntry(admissionCheckName)
 		if !ok {
 			s.logger.Error(fmt.Errorf("admitter not found"), "Admitter not found", "admissionCheck", admissionCheckName)
 			return
 		}
-		entry.(AdmitterEntry).Cancel()
+		entry.Cancel()
 		s.admitters.Delete(admissionCheckName)
 		admissionMetrics := NewAdmissionMetrics(admissionCheckName)
 		admissionMetrics.DeleteAdmissionCheckStatus()
@@ -173,7 +182,16 @@ func (s *AdmissionService) manageAdmitters(ctx context.Context, changeRequests c
 
 	setAdmitter := func(ctx context.Context, admissionCheckName string, admitter Admitter) {
 		// need to handle a case where the admitter is already set
-		
+		entry, ok := s.loadAdmitterEntry(admissionCheckName)
+		if ok && reflect.DeepEqual(entry.Admitter, admitter) {
+			s.logger.Info("Admitter already set, skipping", "admissionCheck", admissionCheckName)
+			return
+		} else if ok {
+			s.logger.Info("Replacing existing admitter for AdmissionCheck", "admissionCheck", admissionCheckName)
+			removeAdmitter(admissionCheckName)
+			s.logger.Info("Removed old admitter for AdmissionCheck", "admissionCheck", admissionCheckName)
+		}
+
 		ctx, cancel := context.WithCancel(ctx)
 		s.admitters.Store(
 			admissionCheckName,
