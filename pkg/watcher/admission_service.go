@@ -36,7 +36,8 @@ type AdmitterEntry struct {
 	Admitter           Admitter
 	AdmissionCheckName string
 	Cancel             context.CancelFunc
-	LastResult         AsyncAdmissionResult
+	// TODO: consider to use a pointer
+	LastResult AsyncAdmissionResult
 }
 
 // AdmissionService manages Admitters for different AdmissionChecks
@@ -129,7 +130,10 @@ func (s *AdmissionService) readAsyncAdmissionResults(
 			// TODO:compare the entire admission result struct instead of just the should admit.
 			// shouldAdmit might be the same, but the reason would be different.
 
-			lastResult := admitterEntry.LastResult.AdmissionResult.ShouldAdmit()
+			lastResult := false
+			if admitterEntry.LastResult != (AsyncAdmissionResult{}) {
+				lastResult = admitterEntry.LastResult.AdmissionResult.ShouldAdmit()
+			}
 			changed := result.AdmissionResult.ShouldAdmit() != lastResult
 			// Update the last result
 			admitterEntry.LastResult = result
