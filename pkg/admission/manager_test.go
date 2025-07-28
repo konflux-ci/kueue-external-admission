@@ -78,7 +78,7 @@ func TestAdmissionService_ConcurrentAccess(t *testing.T) {
 	defer cancel()
 
 	go func() {
-		service.Start(ctx)
+		_ = service.Start(ctx)
 	}()
 
 	// Give the service a moment to start
@@ -96,7 +96,7 @@ func TestAdmissionService_ConcurrentAccess(t *testing.T) {
 
 	// Test concurrent access
 	for i := 0; i < 10; i++ {
-		go func(index int) {
+		go func() {
 			defer func() { done <- true }()
 
 			// Test SetAdmitter
@@ -112,7 +112,7 @@ func TestAdmissionService_ConcurrentAccess(t *testing.T) {
 			Expect(results).ToNot(BeNil(), "Expected non-nil retrieved admitter")
 
 			service.RemoveAdmitter("concurrent-test")
-		}(i)
+		}()
 	}
 
 	// Wait for all goroutines to complete
@@ -130,7 +130,7 @@ func TestAdmissionService_InterfaceFlexibility(t *testing.T) {
 	defer cancel()
 
 	go func() {
-		service.Start(ctx)
+		_ = service.Start(ctx)
 	}()
 
 	// Give the service a moment to start
@@ -152,7 +152,7 @@ func TestAdmissionService_InterfaceFlexibility(t *testing.T) {
 
 	// Test the ShouldAdmitWorkload method through the interface
 	result, err := service.ShouldAdmitWorkload(ctx, []string{"test-key"})
-	Expect(err).To(BeNil(), "Expected no error")
+	Expect(err).ToNot(HaveOccurred(), "Expected no error")
 	Expect(result.ShouldAdmit()).To(
 		BeTrue(),
 		"Expected workload to be admitted",
@@ -168,7 +168,7 @@ func TestAdmissionService_RetrieveMultipleAdmitters(t *testing.T) {
 	defer cancel()
 
 	go func() {
-		service.Start(ctx)
+		_ = service.Start(ctx)
 	}()
 
 	// Give the service a moment to start

@@ -43,11 +43,11 @@ type AdmitterEntry struct {
 // AdmissionManager manages Admitters for different AdmissionChecks
 type AdmissionManager struct {
 	logger                 logr.Logger
-	admitterChangeRequests chan AdmitterChangeRequest                  // Channel for notifying about admitter change requests
-	asyncAdmissionResults  chan result.AsyncAdmissionResult            // Channel for notifying about async admission results
-	admissionResultChanged chan result.AdmissionResult                 // Channel for notifying about admission result changes
-	admitterRemoved        chan string                                 // Channel for notifying about admitter removal
-	publishResults         chan map[string]result.AsyncAdmissionResult // Channel for publishing results from all admitters
+	admitterChangeRequests chan AdmitterChangeRequest                  // Channel for admitter change requests
+	asyncAdmissionResults  chan result.AsyncAdmissionResult            // Channel for async admission results
+	admissionResultChanged chan result.AdmissionResult                 // Channel for admission result changes
+	admitterRemoved        chan string                                 // Channel for admitter removal
+	publishResults         chan map[string]result.AsyncAdmissionResult // Channel for results
 }
 
 // NewAdmissionService creates a new AdmissionService
@@ -58,6 +58,7 @@ func NewAdmissionService(logger logr.Logger) *AdmissionManager {
 		logger:                 logger,
 		asyncAdmissionResults:  make(chan result.AsyncAdmissionResult),
 		admitterChangeRequests: make(chan AdmitterChangeRequest),
+		admissionResultChanged: make(chan result.AdmissionResult),
 		admitterRemoved:        make(chan string),
 		publishResults:         make(chan map[string]result.AsyncAdmissionResult),
 	}
@@ -229,13 +230,19 @@ func (s *AdmissionManager) manageAdmitters(ctx context.Context, changeRequests c
 	}
 }
 
-func (s *AdmissionManager) ShouldAdmitWorkload(ctx context.Context, checkNames []string) (result.AggregatedAdmissionResult, error) {
+func (s *AdmissionManager) ShouldAdmitWorkload(
+	ctx context.Context, checkNames []string,
+) (result.AggregatedAdmissionResult, error) {
 	return s.shouldAdmitWorkload(ctx, checkNames, s.publishResults)
 }
 
 // ShouldAdmitWorkload aggregates admission decisions from multiple admitters
 // it uses the last result from the admitters to determine the admission decision
-func (s *AdmissionManager) shouldAdmitWorkload(ctx context.Context, checkNames []string, publishResults <-chan map[string]result.AsyncAdmissionResult) (result.AggregatedAdmissionResult, error) {
+func (s *AdmissionManager) shouldAdmitWorkload(
+	ctx context.Context,
+	checkNames []string,
+	publishResults <-chan map[string]result.AsyncAdmissionResult,
+) (result.AggregatedAdmissionResult, error) {
 	s.logger.Info("Checking admission for workload", "checks", checkNames)
 
 	builder := result.NewAggregatedAdmissionResultBuilder()
