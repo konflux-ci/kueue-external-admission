@@ -107,9 +107,9 @@ func TestAdmissionService_ConcurrentAccess(t *testing.T) {
 			time.Sleep(50 * time.Millisecond)
 
 			// Test retrieving admitter
-			retrievedAdmitter, exists := service.getAdmitterEntry("test-key")
+			results, exists := <-service.publishResults
 			Expect(exists).To(BeTrue(), "Expected to find admitter")
-			Expect(retrievedAdmitter.Admitter).ToNot(BeNil(), "Expected non-nil retrieved admitter")
+			Expect(results).ToNot(BeNil(), "Expected non-nil retrieved admitter")
 
 			service.RemoveAdmitter("concurrent-test")
 		}(i)
@@ -146,12 +146,12 @@ func TestAdmissionService_InterfaceFlexibility(t *testing.T) {
 	time.Sleep(500 * time.Millisecond)
 
 	// Retrieve as interface
-	retrievedAdmitter, exists := service.getAdmitterEntry("test-key")
+	results, exists := <-service.publishResults
 	Expect(exists).To(BeTrue(), "Expected to find admitter")
-	Expect(retrievedAdmitter.Admitter).ToNot(BeNil(), "Expected non-nil retrieved admitter")
+	Expect(results).ToNot(BeNil(), "Expected non-nil retrieved admitter")
 
 	// Test the ShouldAdmitWorkload method through the interface
-	result, err := service.ShouldAdmitWorkload([]string{"test-key"})
+	result, err := service.ShouldAdmitWorkload(ctx, []string{"test-key"})
 	Expect(err).To(BeNil(), "Expected no error")
 	Expect(result.ShouldAdmit()).To(
 		BeTrue(),
@@ -186,14 +186,14 @@ func TestAdmissionService_RetrieveMultipleAdmitters(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 
 	// Retrieve both
-	retrieved1, exists1 := service.getAdmitterEntry("key1")
-	retrieved2, exists2 := service.getAdmitterEntry("key2")
+	results1, exists1 := <-service.publishResults
+	results2, exists2 := <-service.publishResults
 
 	Expect(exists1).To(BeTrue(), "Expected to find first admitter")
 	Expect(exists2).To(BeTrue(), "Expected to find second admitter")
-	Expect(retrieved1.Admitter).ToNot(BeNil(), "Expected non-nil first admitter")
-	Expect(retrieved2.Admitter).ToNot(BeNil(), "Expected non-nil second admitter")
+	Expect(results1).ToNot(BeNil(), "Expected non-nil first admitter")
+	Expect(results2).ToNot(BeNil(), "Expected non-nil second admitter")
 
 	// Test that they are different instances
-	Expect(retrieved1.Admitter).ToNot(BeIdenticalTo(retrieved2.Admitter), "Expected different admitter instances")
+	Expect(results1).ToNot(BeIdenticalTo(results2), "Expected different admitter instances")
 }

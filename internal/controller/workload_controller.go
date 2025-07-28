@@ -125,7 +125,7 @@ func (w *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	// Check admission using the shared service - this will only check the
 	// admitters for the specific admission checks configured
 	// for this workload's ClusterQueue
-	admissionResult, err := w.admitter.ShouldAdmitWorkload(admissionCheckNames)
+	admissionResult, err := w.admitter.ShouldAdmitWorkload(ctx, admissionCheckNames)
 	if err != nil {
 		log.Error(err, "Error checking admission for workload", "workload", wl.Name)
 		return reconcile.Result{}, err

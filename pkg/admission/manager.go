@@ -3,8 +3,8 @@ package admission
 import (
 	"context"
 	"fmt"
+	"maps"
 	"reflect"
-	"sync"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -17,7 +17,7 @@ type Admitter interface {
 }
 
 type MultiCheckAdmitter interface {
-	ShouldAdmitWorkload(checkNames []string) (result.AggregatedAdmissionResult, error)
+	ShouldAdmitWorkload(ctx context.Context, checkNames []string) (result.AggregatedAdmissionResult, error)
 }
 
 type AdmitterChangeRequestType = string
@@ -38,19 +38,16 @@ type AdmitterEntry struct {
 	Admitter           Admitter
 	AdmissionCheckName string
 	Cancel             context.CancelFunc
-	// TODO: consider to use a pointer
-	LastResult result.AsyncAdmissionResult
 }
 
 // AdmissionManager manages Admitters for different AdmissionChecks
-// Uses sync.Map internally but exposes only type-safe wrapper methods
-// This ensures consistent logging and proper type safety
 type AdmissionManager struct {
-	admitters              sync.Map // private sync.Map - hides direct access to Store/Load/Delete/Range
 	logger                 logr.Logger
-	admitterChangeRequests chan AdmitterChangeRequest       // Channel for notifying about admitter change requests
-	asyncAdmissionResults  chan result.AsyncAdmissionResult // Channel for notifying about async admission results
-	admissionResultChanged chan result.AdmissionResult
+	admitterChangeRequests chan AdmitterChangeRequest                  // Channel for notifying about admitter change requests
+	asyncAdmissionResults  chan result.AsyncAdmissionResult            // Channel for notifying about async admission results
+	admissionResultChanged chan result.AdmissionResult                 // Channel for notifying about admission result changes
+	admitterRemoved        chan string                                 // Channel for notifying about admitter removal
+	publishResults         chan map[string]result.AsyncAdmissionResult // Channel for publishing results from all admitters
 }
 
 // NewAdmissionService creates a new AdmissionService
@@ -61,13 +58,15 @@ func NewAdmissionService(logger logr.Logger) *AdmissionManager {
 		logger:                 logger,
 		asyncAdmissionResults:  make(chan result.AsyncAdmissionResult),
 		admitterChangeRequests: make(chan AdmitterChangeRequest),
+		admitterRemoved:        make(chan string),
+		publishResults:         make(chan map[string]result.AsyncAdmissionResult),
 	}
 }
 
 func (s *AdmissionManager) Start(ctx context.Context) error {
 	s.logger.Info("Starting AdmissionService")
 	go s.manageAdmitters(ctx, s.admitterChangeRequests)
-	go s.readAsyncAdmissionResults(ctx, s.asyncAdmissionResults, s.admissionResultChanged)
+	go s.readAsyncAdmissionResults(ctx, s.asyncAdmissionResults, s.admissionResultChanged, s.publishResults)
 
 	<-ctx.Done()
 	s.logger.Info("Stopping AdmissionService, context done")
@@ -89,88 +88,86 @@ func (s *AdmissionManager) RemoveAdmitter(admissionCheckName string) {
 	}
 }
 
+func (s *AdmissionManager) AdmissionResultChanged() <-chan result.AdmissionResult {
+	return s.admissionResultChanged
+}
+
 func (s *AdmissionManager) readAsyncAdmissionResults(
 	ctx context.Context,
 	asyncAdmissionResults <-chan result.AsyncAdmissionResult,
 	admissionResultChangedChannel chan<- result.AdmissionResult,
+	publishResults chan<- map[string]result.AsyncAdmissionResult,
 ) {
+
+	resultsRegistry := make(map[string]result.AsyncAdmissionResult)
+
 	for {
 		select {
 		case <-ctx.Done():
 			s.logger.Info("Stopping readAsyncAdmissionResults, context done")
 			return
-		case adr := <-asyncAdmissionResults:
+		case admissionCheckName := <-s.admitterRemoved:
+			// Admitter was removed from the manager, remove its latest result from the cache
+			delete(resultsRegistry, admissionCheckName)
+		case publishResults <- maps.Clone(resultsRegistry):
+			s.logger.Info("Publishing results", "results", resultsRegistry)
+		case newResult := <-asyncAdmissionResults:
 			s.logger.Info(
 				"Received async admission result",
-				"result", adr.AdmissionResult.ShouldAdmit(),
-				"details", adr.AdmissionResult.Details(),
-				"error", adr.Error,
+				"result", newResult.AdmissionResult.ShouldAdmit(),
+				"details", newResult.AdmissionResult.Details(),
+				"error", newResult.Error,
 			)
-			admissionCheckName := adr.AdmissionResult.CheckName()
-
-			admitterEntry, exists := s.getAdmitterEntry(admissionCheckName)
-			if !exists {
-				s.logger.Info("Admitter not found, skip storing last sync result", "admissionCheck", admissionCheckName)
-				continue
-			}
+			admissionCheckName := newResult.AdmissionResult.CheckName()
 
 			admissionMetrics := NewAdmissionMetrics(admissionCheckName)
 
-			if adr.Error != nil {
-				s.logger.Error(adr.Error, "Error in async admission result")
+			if newResult.Error != nil {
+				s.logger.Error(newResult.Error, "Error in async admission result")
 				admissionMetrics.RecordError("admission_check_failed")
 				continue
 			}
-			// TODO:compare the entire admission result struct instead of just the should admit.
-			// shouldAdmit might be the same, but the reason would be different.
 
-			lastResult := false
-			if admitterEntry.LastResult != (result.AsyncAdmissionResult{}) {
-				lastResult = admitterEntry.LastResult.AdmissionResult.ShouldAdmit()
+			lastResult, ok := resultsRegistry[admissionCheckName]
+			if !ok {
+				s.logger.Info("No last sync result found, using default value", "admissionCheck", admissionCheckName)
+				lastResult = result.AsyncAdmissionResult{
+					AdmissionResult: result.NewAdmissionResultBuilder(admissionCheckName).SetAdmissionDenied().Build(),
+				}
 			}
-			changed := adr.AdmissionResult.ShouldAdmit() != lastResult
-			// Update the last result
-			admitterEntry.LastResult = adr
-			if adr.Error != nil && changed {
+
+			changed := !reflect.DeepEqual(newResult, lastResult)
+
+			if changed {
+				// Update the last result
+				resultsRegistry[admissionCheckName] = newResult
+			}
+			if newResult.Error != nil && changed {
 				s.logger.Info(
 					"Admission result for %s changed from %v to %v. emitting event",
 					"admissionCheck", admissionCheckName,
-					lastResult,
-					adr.AdmissionResult.ShouldAdmit(),
+					"lastResult", lastResult,
+					"newResult", newResult,
 				)
-				admissionResultChangedChannel <- adr.AdmissionResult
+				admissionResultChangedChannel <- newResult.AdmissionResult
 			}
-			admissionMetrics.RecordAdmissionCheckStatus(adr.AdmissionResult.ShouldAdmit())
+			admissionMetrics.RecordAdmissionCheckStatus(newResult.AdmissionResult.ShouldAdmit())
 		}
 	}
 }
 
-func (s *AdmissionManager) AdmissionResultChanged() <-chan result.AdmissionResult {
-	return s.admissionResultChanged
-}
-
-func (s *AdmissionManager) loadAdmitterEntry(admissionCheckName string) (*AdmitterEntry, bool) {
-	entry, ok := s.admitters.Load(admissionCheckName)
-	if !ok {
-		return nil, false
-	}
-	return entry.(*AdmitterEntry), true
-}
-
-func (s *AdmissionManager) storeAdmitterEntry(admissionCheckName string, entry *AdmitterEntry) {
-	s.admitters.Store(admissionCheckName, entry)
-}
-
 func (s *AdmissionManager) manageAdmitters(ctx context.Context, changeRequests chan AdmitterChangeRequest) {
 
+	admitters := make(map[string]*AdmitterEntry)
+
 	removeAdmitter := func(admissionCheckName string) {
-		entry, ok := s.loadAdmitterEntry(admissionCheckName)
+		entry, ok := admitters[admissionCheckName]
 		if !ok {
 			s.logger.Error(fmt.Errorf("admitter not found"), "Admitter not found", "admissionCheck", admissionCheckName)
 			return
 		}
 		entry.Cancel()
-		s.admitters.Delete(admissionCheckName)
+		delete(admitters, admissionCheckName)
 		admissionMetrics := NewAdmissionMetrics(admissionCheckName)
 		admissionMetrics.DeleteAdmissionCheckStatus()
 		s.logger.Info("Removed admitter for AdmissionCheck", "admissionCheck", admissionCheckName)
@@ -178,7 +175,7 @@ func (s *AdmissionManager) manageAdmitters(ctx context.Context, changeRequests c
 
 	setAdmitter := func(ctx context.Context, admissionCheckName string, admitter Admitter) {
 		// need to handle a case where the admitter is already set
-		entry, ok := s.loadAdmitterEntry(admissionCheckName)
+		entry, ok := admitters[admissionCheckName]
 		if ok && reflect.DeepEqual(entry.Admitter, admitter) {
 			s.logger.Info("Admitter already set, skipping", "admissionCheck", admissionCheckName)
 			return
@@ -189,13 +186,11 @@ func (s *AdmissionManager) manageAdmitters(ctx context.Context, changeRequests c
 		}
 
 		ctx, cancel := context.WithCancel(ctx)
-		s.storeAdmitterEntry(
-			admissionCheckName,
-			&AdmitterEntry{
-				Admitter: admitter,
-				Cancel:   cancel,
-			},
-		)
+		admitters[admissionCheckName] = &AdmitterEntry{
+			AdmissionCheckName: admissionCheckName,
+			Admitter:           admitter,
+			Cancel:             cancel,
+		}
 		if err := admitter.Sync(ctx, s.asyncAdmissionResults); err != nil {
 			retryIn := 15 * time.Second
 			s.logger.Error(err, "Failed to sync admitter", "admissionCheck", admissionCheckName, "retryIn", retryIn)
@@ -218,10 +213,9 @@ func (s *AdmissionManager) manageAdmitters(ctx context.Context, changeRequests c
 		select {
 		case <-ctx.Done():
 			s.logger.Info("Stopping ManageAdmitters, context done")
-			s.admitters.Range(func(key, value any) bool {
-				removeAdmitter(key.(string))
-				return true
-			})
+			for admissionCheckName := range admitters {
+				removeAdmitter(admissionCheckName)
+			}
 			return
 		case changeRequest := <-changeRequests:
 			switch changeRequest.AdmitterChangeRequestType {
@@ -229,44 +223,50 @@ func (s *AdmissionManager) manageAdmitters(ctx context.Context, changeRequests c
 				setAdmitter(ctx, changeRequest.AdmissionCheckName, changeRequest.Admitter)
 			case AdmitterChangeRequestRemove:
 				removeAdmitter(changeRequest.AdmissionCheckName)
+				s.admitterRemoved <- changeRequest.AdmissionCheckName
 			}
 		}
 	}
 }
 
-// getAdmitter gets the Admitter for a given AdmissionCheck
-func (s *AdmissionManager) getAdmitterEntry(admissionCheckName string) (*AdmitterEntry, bool) {
-	value, exists := s.admitters.Load(admissionCheckName)
-	if !exists {
-		return nil, false
-	}
-	return value.(*AdmitterEntry), true
+func (s *AdmissionManager) ShouldAdmitWorkload(ctx context.Context, checkNames []string) (result.AggregatedAdmissionResult, error) {
+	return s.shouldAdmitWorkload(ctx, checkNames, s.publishResults)
 }
 
 // ShouldAdmitWorkload aggregates admission decisions from multiple admitters
 // it uses the last result from the admitters to determine the admission decision
-func (s *AdmissionManager) ShouldAdmitWorkload(checkNames []string) (result.AggregatedAdmissionResult, error) {
+func (s *AdmissionManager) shouldAdmitWorkload(ctx context.Context, checkNames []string, publishResults <-chan map[string]result.AsyncAdmissionResult) (result.AggregatedAdmissionResult, error) {
 	s.logger.Info("Checking admission for workload", "checks", checkNames)
 
 	builder := result.NewAggregatedAdmissionResultBuilder()
 	builder.SetAdmissionAllowed()
 
+	var resultsRegistry map[string]result.AsyncAdmissionResult
+
+	select {
+	case <-ctx.Done():
+		s.logger.Info("Stopping shouldAdmitWorkload, context done")
+		return nil, ctx.Err()
+	case resultsRegistry = <-publishResults:
+		s.logger.Info("Received results", "results", resultsRegistry)
+	}
+
 	for _, checkName := range checkNames {
-		admitterEntry, exists := s.getAdmitterEntry(checkName)
+		lastResult, exists := resultsRegistry[checkName]
 		if !exists {
 			continue
 		}
 
 		shouldAdmit := false
-		if admitterEntry.LastResult != (result.AsyncAdmissionResult{}) {
-			err := admitterEntry.LastResult.Error
+		if lastResult != (result.AsyncAdmissionResult{}) {
+			err := lastResult.Error
 			if err != nil {
 				s.logger.Error(err, "Failed to check admission", "check", checkName)
 				return nil, fmt.Errorf("failed to check admission for %s: %w", checkName, err)
 			}
-			shouldAdmit = admitterEntry.LastResult.AdmissionResult.ShouldAdmit()
+			shouldAdmit = lastResult.AdmissionResult.ShouldAdmit()
 			// Aggregate provider details from all checks
-			builder.AddProviderDetails(checkName, admitterEntry.LastResult.AdmissionResult.Details())
+			builder.AddProviderDetails(checkName, lastResult.AdmissionResult.Details())
 		} else {
 			s.logger.Info("No last result found for AdmissionCheck", "check", checkName)
 			builder.AddProviderDetails(checkName, []string{"No last result found for AdmissionCheck. Denied by default."})
