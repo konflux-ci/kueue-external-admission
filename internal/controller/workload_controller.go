@@ -160,7 +160,7 @@ func (w *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, newCheck, w.clock)
 	}
 
-	// make the update only if the workload was changed?
+	// TODO: make the update only if the workload was changed?
 	err = w.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(constant.ControllerName), client.ForceOwnership)
 	if err != nil {
 		return ctrl.Result{}, err

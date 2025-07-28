@@ -95,6 +95,7 @@ func (r *AdmissionCheckReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	externalConfig, err := r.acHelper.ConfigFromRef(ctx, ac.Spec.Parameters)
 	if err != nil {
 		log.Error(err, "failed to get ExternalAdmissionConfig")
+		// TODO: do we need to remove the admitter in this case?
 		return r.updateAdmissionCheckStatus(ctx, ac, false, "failed to get ExternalAdmissionConfig: "+err.Error())
 	}
 

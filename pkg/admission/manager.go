@@ -113,14 +113,15 @@ func (s *AdmissionManager) readAsyncAdmissionResults(
 		case publishResults <- maps.Clone(resultsRegistry):
 			s.logger.Info("Publishing results", "results", resultsRegistry)
 		case newResult := <-asyncAdmissionResults:
+			admissionCheckName := newResult.AdmissionResult.CheckName()
 			s.logger.Info(
 				"Received async admission result",
+				"admissionCheck", admissionCheckName,
 				"result", newResult.AdmissionResult.ShouldAdmit(),
 				"details", newResult.AdmissionResult.Details(),
 				"error", newResult.Error,
 			)
-			admissionCheckName := newResult.AdmissionResult.CheckName()
-
+		
 			admissionMetrics := NewAdmissionMetrics(admissionCheckName)
 
 			if newResult.Error != nil {
@@ -139,14 +140,15 @@ func (s *AdmissionManager) readAsyncAdmissionResults(
 			changed := !reflect.DeepEqual(newResult, lastResult)
 			resultsRegistry[admissionCheckName] = newResult
 
-			if newResult.Error != nil && changed {
-				s.logger.Info(
-					"Admission result for %s changed from %v to %v. emitting event",
-					"admissionCheck", admissionCheckName,
-					"lastResult", lastResult,
-					"newResult", newResult,
-				)
-				admissionResultChangedChannel <- newResult.AdmissionResult
+			if changed {
+				if newResult.Error == nil {
+					// Only send successful admission results to the channel
+					admissionResultChangedChannel <- newResult.AdmissionResult
+				} else {
+					s.logger.Info("Admission result changed but has error, not notifying",
+						"admissionCheck", admissionCheckName,
+						"error", newResult.Error)
+				}
 			}
 			admissionMetrics.RecordAdmissionCheckStatus(newResult.AdmissionResult.ShouldAdmit())
 		}
@@ -215,11 +217,14 @@ func (s *AdmissionManager) manageAdmitters(ctx context.Context, changeRequests c
 			}
 			return
 		case changeRequest := <-changeRequests:
+			// TODO: generate and id for the admitter
 			switch changeRequest.AdmitterChangeRequestType {
 			case AdmitterChangeRequestAdd:
 				setAdmitter(ctx, changeRequest.AdmissionCheckName, changeRequest.Admitter)
 			case AdmitterChangeRequestRemove:
 				removeAdmitter(changeRequest.AdmissionCheckName)
+				// TODO: there might be a race condition here, if the admitter is removed and the result is published
+				// need to concider a periodic cleanup of the results registry
 				s.admitterRemoved <- changeRequest.AdmissionCheckName
 			}
 		}
