@@ -294,7 +294,7 @@ func main() {
 	}
 
 	// Initialize the admission service
-	admissionService := admission.NewAdmissionService(setupLog.WithName("admission-service"))
+	admissionService := admission.NewManager(setupLog.WithName("admission-service"))
 	// Add admission service to manager so it starts/stops with the manager
 	if err = mgr.Add(admissionService); err != nil {
 		setupLog.Error(err, "unable to add admission service to manager")

@@ -60,13 +60,13 @@ func newMockAdmitter(checkName string, shouldAdmit bool, details []string) *mock
 
 func TestAdmissionService_Creation(t *testing.T) {
 	RegisterTestingT(t)
-	service := NewAdmissionService(logr.Discard())
+	service := NewManager(logr.Discard())
 	Expect(service).ToNot(BeNil(), "Expected non-nil AdmissionService")
 }
 
 func TestAdmissionService_ConcurrentAccess(t *testing.T) {
 	RegisterTestingT(t)
-	service := NewAdmissionService(logr.Discard())
+	service := NewManager(logr.Discard())
 
 	// Start the service
 	ctx, cancel := context.WithCancel(context.Background())
@@ -119,7 +119,7 @@ func TestAdmissionService_ConcurrentAccess(t *testing.T) {
 
 func TestAdmissionService_InterfaceFlexibility(t *testing.T) {
 	RegisterTestingT(t)
-	service := NewAdmissionService(logr.Discard())
+	service := NewManager(logr.Discard())
 
 	// Start the service
 	ctx, cancel := context.WithCancel(context.Background())
@@ -157,7 +157,7 @@ func TestAdmissionService_InterfaceFlexibility(t *testing.T) {
 
 func TestAdmissionService_RetrieveMultipleAdmitters(t *testing.T) {
 	RegisterTestingT(t)
-	service := NewAdmissionService(logr.Discard())
+	service := NewManager(logr.Discard())
 
 	// Start the service
 	ctx, cancel := context.WithCancel(context.Background())

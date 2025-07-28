@@ -59,9 +59,9 @@ type AdmissionManager struct {
 	resultSnapshot       chan map[string]result.AsyncAdmissionResult // Snapshots of current results
 }
 
-// NewAdmissionService creates a new AdmissionService
+// NewManager creates a new AdmissionService
 // The internal sync.Map is ready to use without explicit initialization
-func NewAdmissionService(logger logr.Logger) *AdmissionManager {
+func NewManager(logger logr.Logger) *AdmissionManager {
 	return &AdmissionManager{
 		// sync.Map requires no initialization - zero value is ready to use
 		logger:               logger,
