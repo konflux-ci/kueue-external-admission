@@ -20,10 +20,8 @@ type AdmissionManager struct {
 }
 
 // NewManager creates a new AdmissionService
-// The internal sync.Map is ready to use without explicit initialization
 func NewManager(logger logr.Logger) *AdmissionManager {
 	return &AdmissionManager{
-		// sync.Map requires no initialization - zero value is ready to use
 		logger:              logger,
 		incomingResults:     make(chan result.AsyncAdmissionResult),
 		admitterCommands:    make(chan AdmitterCMD),

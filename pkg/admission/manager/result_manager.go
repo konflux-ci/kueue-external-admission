@@ -51,6 +51,8 @@ func (m *ResultManager) Run(
 
 		// Receive new results from the admitters.
 		case newResult := <-incomingResults:
+			// move to a separate method
+			// check if it can be simplified
 			m.logger.Info(
 				"RECEIVED new result",
 				"admissionCheck", newResult.AdmissionResult.CheckName(),
