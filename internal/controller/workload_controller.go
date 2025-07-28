@@ -46,11 +46,11 @@ import (
 type WorkloadReconciler struct {
 	client           client.Client
 	Scheme           *runtime.Scheme
-	admissionService *admission.AdmissionService // TODO: abstract with an interface.
+	admissionService *admission.AdmissionManager // TODO: abstract with an interface.
 	clock            clock.Clock
 }
 
-func NewWorkloadController(client client.Client, schema *runtime.Scheme, admissionService *admission.AdmissionService, clock clock.Clock) *WorkloadReconciler {
+func NewWorkloadController(client client.Client, schema *runtime.Scheme, admissionService *admission.AdmissionManager, clock clock.Clock) *WorkloadReconciler {
 	return &WorkloadReconciler{
 		client,
 		schema,

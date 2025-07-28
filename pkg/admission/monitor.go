@@ -23,7 +23,7 @@ type Lister interface {
 
 // Monitor periodically checks alert states and emits events when changes occur
 type Monitor struct {
-	admissionService *AdmissionService
+	admissionService *AdmissionManager
 	lister           Lister
 	client           client.Client
 	period           time.Duration
@@ -34,7 +34,7 @@ var _ manager.Runnable = &Monitor{}
 
 // NewMonitor creates a new alert monitor
 func NewMonitor(
-	admissionService *AdmissionService,
+	admissionService *AdmissionManager,
 	lister Lister,
 	client client.Client,
 	period time.Duration,

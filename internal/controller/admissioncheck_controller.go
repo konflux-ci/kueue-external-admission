@@ -42,7 +42,7 @@ import (
 const admissionCheckConfigNameKey = "spec.parameters.name"
 
 // NewAdmissionCheckReconciler creates a new AdmissionCheckReconciler
-func NewAdmissionCheckReconciler(client client.Client, scheme *runtime.Scheme, admissionService *admission.AdmissionService) (*AdmissionCheckReconciler, error) {
+func NewAdmissionCheckReconciler(client client.Client, scheme *runtime.Scheme, admissionService *admission.AdmissionManager) (*AdmissionCheckReconciler, error) {
 	acHelper, err := acutil.NewConfigHelper[*konfluxciv1alpha1.ExternalAdmissionConfig](client)
 	if err != nil {
 		return nil, err
@@ -60,7 +60,7 @@ func NewAdmissionCheckReconciler(client client.Client, scheme *runtime.Scheme, a
 type AdmissionCheckReconciler struct {
 	client.Client
 	Scheme           *runtime.Scheme
-	admissionService *admission.AdmissionService // Shared service for managing admitters
+	admissionService *admission.AdmissionManager // Shared service for managing admitters
 	acHelper         *acutil.ConfigHelper[*konfluxciv1alpha1.ExternalAdmissionConfig, konfluxciv1alpha1.ExternalAdmissionConfig]
 	admitterFactory  admission.AdmitterFactory
 }

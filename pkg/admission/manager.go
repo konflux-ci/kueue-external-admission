@@ -39,10 +39,10 @@ type AdmitterEntry struct {
 	LastResult result.AsyncAdmissionResult
 }
 
-// AdmissionService manages Admitters for different AdmissionChecks
+// AdmissionManager manages Admitters for different AdmissionChecks
 // Uses sync.Map internally but exposes only type-safe wrapper methods
 // This ensures consistent logging and proper type safety
-type AdmissionService struct {
+type AdmissionManager struct {
 	admitters sync.Map // private sync.Map - hides direct access to Store/Load/Delete/Range
 	logger    logr.Logger
 	// TODO: remove this channel it doesn't belong here. should pass it to the monitor directly from main
@@ -54,10 +54,10 @@ type AdmissionService struct {
 
 // NewAdmissionService creates a new AdmissionService
 // The internal sync.Map is ready to use without explicit initialization
-func NewAdmissionService(logger logr.Logger) (*AdmissionService, <-chan event.GenericEvent) {
+func NewAdmissionService(logger logr.Logger) (*AdmissionManager, <-chan event.GenericEvent) {
 	eventsCh := make(chan event.GenericEvent)
 
-	return &AdmissionService{
+	return &AdmissionManager{
 		// sync.Map requires no initialization - zero value is ready to use
 		logger:                 logger,
 		eventsChannel:          eventsCh,
@@ -66,7 +66,7 @@ func NewAdmissionService(logger logr.Logger) (*AdmissionService, <-chan event.Ge
 	}, eventsCh
 }
 
-func (s *AdmissionService) Start(ctx context.Context) error {
+func (s *AdmissionManager) Start(ctx context.Context) error {
 	s.logger.Info("Starting AdmissionService")
 	go s.manageAdmitters(ctx, s.admitterChangeRequests)
 	go s.readAsyncAdmissionResults(ctx, s.asyncAdmissionResults, s.admissionResultChanged)
@@ -76,7 +76,7 @@ func (s *AdmissionService) Start(ctx context.Context) error {
 	return ctx.Err()
 }
 
-func (s *AdmissionService) SetAdmitter(admissionCheckName string, admitter Admitter) {
+func (s *AdmissionManager) SetAdmitter(admissionCheckName string, admitter Admitter) {
 	s.admitterChangeRequests <- AdmitterChangeRequest{
 		AdmissionCheckName:        admissionCheckName,
 		AdmitterChangeRequestType: AdmitterChangeRequestAdd,
@@ -84,14 +84,14 @@ func (s *AdmissionService) SetAdmitter(admissionCheckName string, admitter Admit
 	}
 }
 
-func (s *AdmissionService) RemoveAdmitter(admissionCheckName string) {
+func (s *AdmissionManager) RemoveAdmitter(admissionCheckName string) {
 	s.admitterChangeRequests <- AdmitterChangeRequest{
 		AdmissionCheckName:        admissionCheckName,
 		AdmitterChangeRequestType: AdmitterChangeRequestRemove,
 	}
 }
 
-func (s *AdmissionService) readAsyncAdmissionResults(
+func (s *AdmissionManager) readAsyncAdmissionResults(
 	ctx context.Context,
 	asyncAdmissionResults <-chan result.AsyncAdmissionResult,
 	admissionResultChangedChannel chan<- result.AdmissionResult,
@@ -148,11 +148,11 @@ func (s *AdmissionService) readAsyncAdmissionResults(
 	}
 }
 
-func (s *AdmissionService) AdmissionResultChanged() <-chan result.AdmissionResult {
+func (s *AdmissionManager) AdmissionResultChanged() <-chan result.AdmissionResult {
 	return s.admissionResultChanged
 }
 
-func (s *AdmissionService) loadAdmitterEntry(admissionCheckName string) (AdmitterEntry, bool) {
+func (s *AdmissionManager) loadAdmitterEntry(admissionCheckName string) (AdmitterEntry, bool) {
 	entry, ok := s.admitters.Load(admissionCheckName)
 	if !ok {
 		return AdmitterEntry{}, false
@@ -160,7 +160,7 @@ func (s *AdmissionService) loadAdmitterEntry(admissionCheckName string) (Admitte
 	return entry.(AdmitterEntry), true
 }
 
-func (s *AdmissionService) manageAdmitters(ctx context.Context, changeRequests chan AdmitterChangeRequest) {
+func (s *AdmissionManager) manageAdmitters(ctx context.Context, changeRequests chan AdmitterChangeRequest) {
 
 	removeAdmitter := func(admissionCheckName string) {
 		entry, ok := s.loadAdmitterEntry(admissionCheckName)
@@ -234,7 +234,7 @@ func (s *AdmissionService) manageAdmitters(ctx context.Context, changeRequests c
 }
 
 // getAdmitter gets the Admitter for a given AdmissionCheck
-func (s *AdmissionService) getAdmitterEntry(admissionCheckName string) (AdmitterEntry, bool) {
+func (s *AdmissionManager) getAdmitterEntry(admissionCheckName string) (AdmitterEntry, bool) {
 	value, exists := s.admitters.Load(admissionCheckName)
 	if !exists {
 		return AdmitterEntry{}, false
@@ -244,7 +244,7 @@ func (s *AdmissionService) getAdmitterEntry(admissionCheckName string) (Admitter
 
 // ShouldAdmitWorkload aggregates admission decisions from multiple admitters
 // it uses the last result from the admitters to determine the admission decision
-func (s *AdmissionService) ShouldAdmitWorkload(
+func (s *AdmissionManager) ShouldAdmitWorkload(
 	ctx context.Context,
 	checkNames []string,
 ) (result.AggregatedAdmissionResult, error) {
