@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package admission
+package factory
 
 import (
 	"context"
@@ -25,6 +25,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	konfluxciv1alpha1 "github.com/konflux-ci/kueue-external-admission/api/konflux-ci.dev/v1alpha1"
+	"github.com/konflux-ci/kueue-external-admission/pkg/admission"
 	"github.com/konflux-ci/kueue-external-admission/pkg/admission/result"
 )
 
@@ -35,7 +36,7 @@ func init() {
 			config *konfluxciv1alpha1.ExternalAdmissionConfig,
 			logger logr.Logger,
 			admissionCheckName string,
-		) (Admitter, error) {
+		) (admission.Admitter, error) {
 			// Return a simple mock admitter for testing
 			return &mockTestAdmitter{}, nil
 		})

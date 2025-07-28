@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package admission
+package factory
 
 import (
 	"fmt"
@@ -22,10 +22,11 @@ import (
 	"github.com/go-logr/logr"
 
 	konfluxciv1alpha1 "github.com/konflux-ci/kueue-external-admission/api/konflux-ci.dev/v1alpha1"
+	"github.com/konflux-ci/kueue-external-admission/pkg/admission"
 )
 
 // AdmitterFactory is a function type for creating admitters
-type AdmitterFactory func(*konfluxciv1alpha1.ExternalAdmissionConfig, logr.Logger, string) (Admitter, error)
+type AdmitterFactory func(*konfluxciv1alpha1.ExternalAdmissionConfig, logr.Logger, string) (admission.Admitter, error)
 
 // providerFactories holds the registered provider factories
 var providerFactories = make(map[string]AdmitterFactory)
@@ -40,7 +41,7 @@ func NewAdmitter(
 	config *konfluxciv1alpha1.ExternalAdmissionConfig,
 	logger logr.Logger,
 	admissionCheckName string,
-) (Admitter, error) {
+) (admission.Admitter, error) {
 	if config == nil {
 		return nil, fmt.Errorf("config cannot be nil")
 	}

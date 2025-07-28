@@ -1,4 +1,4 @@
-package admission
+package enqueue
 
 import (
 	"context"
@@ -12,6 +12,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/workload"
 
+	admissionmanager "github.com/konflux-ci/kueue-external-admission/pkg/admission/manager"
 	"github.com/konflux-ci/kueue-external-admission/pkg/admission/result"
 	"github.com/konflux-ci/kueue-external-admission/pkg/constant"
 )
@@ -23,7 +24,7 @@ type Lister interface {
 
 // Enqueuer periodically checks alert states and emits events when changes occur
 type Enqueuer struct {
-	admissionService *AdmissionManager
+	admissionService *admissionmanager.AdmissionManager
 	lister           Lister
 	eventCh          chan<- event.GenericEvent
 	client           client.Client
@@ -35,7 +36,7 @@ var _ manager.Runnable = &Enqueuer{}
 
 // NewEnqueuer creates a new alert enqueuer
 func NewEnqueuer(
-	admissionService *AdmissionManager,
+	admissionService *admissionmanager.AdmissionManager,
 	lister Lister,
 	eventCh chan<- event.GenericEvent,
 	client client.Client,

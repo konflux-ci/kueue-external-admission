@@ -31,12 +31,13 @@ import (
 
 	konfluxciv1alpha1 "github.com/konflux-ci/kueue-external-admission/api/konflux-ci.dev/v1alpha1"
 	"github.com/konflux-ci/kueue-external-admission/pkg/admission"
+	"github.com/konflux-ci/kueue-external-admission/pkg/admission/factory"
 	"github.com/konflux-ci/kueue-external-admission/pkg/admission/result"
 )
 
 func init() {
 	// Register this provider's factory with the watcher package
-	admission.RegisterProviderFactory("alertmanager",
+	factory.RegisterProviderFactory("alertmanager",
 		func(
 			config *konfluxciv1alpha1.ExternalAdmissionConfig,
 			logger logr.Logger,

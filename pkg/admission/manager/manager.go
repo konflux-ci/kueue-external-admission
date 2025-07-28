@@ -1,4 +1,4 @@
-package admission
+package manager
 
 import (
 	"context"
@@ -9,17 +9,10 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/konflux-ci/kueue-external-admission/pkg/admission"
+	"github.com/konflux-ci/kueue-external-admission/pkg/admission/monitoring"
 	"github.com/konflux-ci/kueue-external-admission/pkg/admission/result"
 )
-
-// Admitter determines whether admission should be allowed
-type Admitter interface {
-	Sync(context.Context, chan<- result.AsyncAdmissionResult) error
-}
-
-type MultiCheckAdmitter interface {
-	ShouldAdmitWorkload(ctx context.Context, checkNames []string) (result.AggregatedAdmissionResult, error)
-}
 
 type AdmitterChangeRequestType = string
 
@@ -32,11 +25,11 @@ type AdmitterChangeRequest struct {
 	AdmissionCheckName string
 	AdmitterChangeRequestType
 	// TODO: consider moving the factory to the admission service
-	Admitter Admitter
+	Admitter admission.Admitter
 }
 
 type AdmitterEntry struct {
-	Admitter           Admitter
+	Admitter           admission.Admitter
 	AdmissionCheckName string
 	Cancel             context.CancelFunc
 }
@@ -81,7 +74,7 @@ func (s *AdmissionManager) Start(ctx context.Context) error {
 	return ctx.Err()
 }
 
-func (s *AdmissionManager) SetAdmitter(admissionCheckName string, admitter Admitter) {
+func (s *AdmissionManager) SetAdmitter(admissionCheckName string, admitter admission.Admitter) {
 	s.admitterCommands <- AdmitterChangeRequest{
 		AdmissionCheckName:        admissionCheckName,
 		AdmitterChangeRequestType: AdmitterChangeRequestAdd,
@@ -142,7 +135,7 @@ func (s *AdmissionManager) readAsyncAdmissionResults(
 				"error", newResult.Error,
 			)
 
-			admissionMetrics := NewAdmissionMetrics(admissionCheckName)
+			admissionMetrics := monitoring.NewAdmissionMetrics(admissionCheckName)
 
 			if newResult.Error != nil {
 				s.logger.Error(newResult.Error, "Error in async admission result")
@@ -201,8 +194,6 @@ func (s *AdmissionManager) readAsyncAdmissionResults(
 	}
 }
 
-
-
 func (s *AdmissionManager) manageAdmitters(ctx context.Context, admitterCommands chan AdmitterChangeRequest) {
 
 	admitters := make(map[string]*AdmitterEntry)
@@ -215,12 +206,12 @@ func (s *AdmissionManager) manageAdmitters(ctx context.Context, admitterCommands
 		}
 		entry.Cancel()
 		delete(admitters, admissionCheckName)
-		admissionMetrics := NewAdmissionMetrics(admissionCheckName)
+		admissionMetrics := monitoring.NewAdmissionMetrics(admissionCheckName)
 		admissionMetrics.DeleteAdmissionCheckStatus()
 		s.logger.Info("Removed admitter for AdmissionCheck", "admissionCheck", admissionCheckName)
 	}
 
-	setAdmitter := func(ctx context.Context, admissionCheckName string, admitter Admitter) {
+	setAdmitter := func(ctx context.Context, admissionCheckName string, admitter admission.Admitter) {
 		// need to handle a case where the admitter is already set
 		entry, ok := admitters[admissionCheckName]
 		if ok && reflect.DeepEqual(entry.Admitter, admitter) {
@@ -250,7 +241,7 @@ func (s *AdmissionManager) manageAdmitters(ctx context.Context, admitterCommands
 				}
 			}()
 		}
-		admissionMetrics := NewAdmissionMetrics(admissionCheckName)
+		admissionMetrics := monitoring.NewAdmissionMetrics(admissionCheckName)
 		// Set initial status to true just to make sure that the metric is set
 		admissionMetrics.RecordAdmissionCheckStatus(true)
 		s.logger.Info("Added admitter for AdmissionCheck", "admissionCheck", admissionCheckName)
@@ -346,7 +337,7 @@ func (s *AdmissionManager) shouldAdmitWorkload(
 		}
 
 		// Record metrics
-		admissionMetrics := NewAdmissionMetrics(checkName)
+		admissionMetrics := monitoring.NewAdmissionMetrics(checkName)
 		admissionMetrics.RecordDecision(shouldAdmit)
 
 		if !shouldAdmit {

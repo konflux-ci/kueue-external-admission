@@ -23,6 +23,7 @@ import (
 	"strings"
 
 	"github.com/konflux-ci/kueue-external-admission/pkg/admission"
+	"github.com/konflux-ci/kueue-external-admission/pkg/admission/enqueue"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/clock"
@@ -187,7 +188,7 @@ type WorkloadLister struct {
 	client client.Client
 }
 
-var _ admission.Lister = &WorkloadLister{}
+var _ enqueue.Lister = &WorkloadLister{}
 
 func NewWorkloadLister(client client.Client) *WorkloadLister {
 	return &WorkloadLister{client: client}
