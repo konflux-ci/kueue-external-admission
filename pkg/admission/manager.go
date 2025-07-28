@@ -126,7 +126,6 @@ func (s *AdmissionManager) readAsyncAdmissionResults(
 			if newResult.Error != nil {
 				s.logger.Error(newResult.Error, "Error in async admission result")
 				admissionMetrics.RecordError("admission_check_failed")
-				continue
 			}
 
 			lastResult, ok := resultsRegistry[admissionCheckName]
@@ -138,11 +137,8 @@ func (s *AdmissionManager) readAsyncAdmissionResults(
 			}
 
 			changed := !reflect.DeepEqual(newResult, lastResult)
+			resultsRegistry[admissionCheckName] = newResult
 
-			if changed {
-				// Update the last result
-				resultsRegistry[admissionCheckName] = newResult
-			}
 			if newResult.Error != nil && changed {
 				s.logger.Info(
 					"Admission result for %s changed from %v to %v. emitting event",
