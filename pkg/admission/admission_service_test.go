@@ -1,4 +1,4 @@
-package watcher
+package admission
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/go-logr/logr"
-	"github.com/konflux-ci/kueue-external-admission/pkg/watcher/result"
+	"github.com/konflux-ci/kueue-external-admission/pkg/admission/result"
 	. "github.com/onsi/gomega"
 	"github.com/prometheus/alertmanager/api/v2/models"
 )

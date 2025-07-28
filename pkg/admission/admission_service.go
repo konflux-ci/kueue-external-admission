@@ -1,4 +1,4 @@
-package watcher
+package admission
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	"github.com/konflux-ci/kueue-external-admission/pkg/watcher/result"
+	"github.com/konflux-ci/kueue-external-admission/pkg/admission/result"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 )
 

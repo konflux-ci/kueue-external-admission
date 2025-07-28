@@ -34,15 +34,15 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 
 	konfluxciv1alpha1 "github.com/konflux-ci/kueue-external-admission/api/konflux-ci.dev/v1alpha1"
+	"github.com/konflux-ci/kueue-external-admission/pkg/admission"
 	"github.com/konflux-ci/kueue-external-admission/pkg/constant"
-	"github.com/konflux-ci/kueue-external-admission/pkg/watcher"
 	acutil "sigs.k8s.io/kueue/pkg/util/admissioncheck"
 )
 
 const admissionCheckConfigNameKey = "spec.parameters.name"
 
 // NewAdmissionCheckReconciler creates a new AdmissionCheckReconciler
-func NewAdmissionCheckReconciler(client client.Client, scheme *runtime.Scheme, admissionService *watcher.AdmissionService) (*AdmissionCheckReconciler, error) {
+func NewAdmissionCheckReconciler(client client.Client, scheme *runtime.Scheme, admissionService *admission.AdmissionService) (*AdmissionCheckReconciler, error) {
 	acHelper, err := acutil.NewConfigHelper[*konfluxciv1alpha1.ExternalAdmissionConfig](client)
 	if err != nil {
 		return nil, err
@@ -52,7 +52,7 @@ func NewAdmissionCheckReconciler(client client.Client, scheme *runtime.Scheme, a
 		Scheme:           scheme,
 		admissionService: admissionService,
 		acHelper:         acHelper,
-		admitterFactory:  watcher.NewAdmitter,
+		admitterFactory:  admission.NewAdmitter,
 	}, nil
 }
 
@@ -60,9 +60,9 @@ func NewAdmissionCheckReconciler(client client.Client, scheme *runtime.Scheme, a
 type AdmissionCheckReconciler struct {
 	client.Client
 	Scheme           *runtime.Scheme
-	admissionService *watcher.AdmissionService // Shared service for managing admitters
+	admissionService *admission.AdmissionService // Shared service for managing admitters
 	acHelper         *acutil.ConfigHelper[*konfluxciv1alpha1.ExternalAdmissionConfig, konfluxciv1alpha1.ExternalAdmissionConfig]
-	admitterFactory  watcher.AdmitterFactory
+	admitterFactory  admission.AdmitterFactory
 }
 
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=admissionchecks,verbs=get;list;watch;create;update;patch;delete

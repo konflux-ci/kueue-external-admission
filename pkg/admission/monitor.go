@@ -1,4 +1,4 @@
-package watcher
+package admission
 
 import (
 	"context"
@@ -12,8 +12,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/workload"
 
+	"github.com/konflux-ci/kueue-external-admission/pkg/admission/result"
 	"github.com/konflux-ci/kueue-external-admission/pkg/constant"
-	"github.com/konflux-ci/kueue-external-admission/pkg/watcher/result"
 )
 
 // Lister provides a way to list objects that need admission checking

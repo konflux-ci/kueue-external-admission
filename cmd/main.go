@@ -39,7 +39,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	"github.com/konflux-ci/kueue-external-admission/internal/controller"
-	"github.com/konflux-ci/kueue-external-admission/pkg/watcher"
+	"github.com/konflux-ci/kueue-external-admission/pkg/admission"
 
 	konfluxcidevv1alpha1 "github.com/konflux-ci/kueue-external-admission/api/konflux-ci.dev/v1alpha1"
 	// +kubebuilder:scaffold:imports
@@ -293,7 +293,7 @@ func main() {
 	}
 
 	// Initialize the admission service
-	admissionService, eventCh := watcher.NewAdmissionService(setupLog.WithName("admission-service"))
+	admissionService, eventCh := admission.NewAdmissionService(setupLog.WithName("admission-service"))
 	// Add admission service to manager so it starts/stops with the manager
 	if err = mgr.Add(admissionService); err != nil {
 		setupLog.Error(err, "unable to add admission service to manager")
@@ -322,7 +322,7 @@ func main() {
 	}
 
 	// Create alert monitor to watch for alert state changes
-	alertMonitor := watcher.NewMonitor(
+	alertMonitor := admission.NewMonitor(
 		admissionService,
 		controller.NewWorkloadLister(mgr.GetClient()),
 		mgr.GetClient(),

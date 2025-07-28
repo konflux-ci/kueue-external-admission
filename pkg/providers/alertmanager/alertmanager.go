@@ -30,18 +30,18 @@ import (
 	"github.com/prometheus/alertmanager/api/v2/models"
 
 	konfluxciv1alpha1 "github.com/konflux-ci/kueue-external-admission/api/konflux-ci.dev/v1alpha1"
-	"github.com/konflux-ci/kueue-external-admission/pkg/watcher"
-	"github.com/konflux-ci/kueue-external-admission/pkg/watcher/result"
+	"github.com/konflux-ci/kueue-external-admission/pkg/admission"
+	"github.com/konflux-ci/kueue-external-admission/pkg/admission/result"
 )
 
 func init() {
 	// Register this provider's factory with the watcher package
-	watcher.RegisterProviderFactory("alertmanager",
+	admission.RegisterProviderFactory("alertmanager",
 		func(
 			config *konfluxciv1alpha1.ExternalAdmissionConfig,
 			logger logr.Logger,
 			admissionCheckName string,
-		) (watcher.Admitter, error) {
+		) (admission.Admitter, error) {
 			if config.Spec.Provider.AlertManager == nil {
 				return nil, fmt.Errorf("AlertManager provider config is nil")
 			}
@@ -58,14 +58,14 @@ type admitter struct {
 	admissionCheckName string
 }
 
-var _ watcher.Admitter = &admitter{}
+var _ admission.Admitter = &admitter{}
 
 // NewAdmitter creates a new AlertManager client using the official API v2 client
 func NewAdmitter(
 	config *konfluxciv1alpha1.AlertManagerProviderConfig,
 	logger logr.Logger,
 	admissionCheckName string,
-) (watcher.Admitter, error) {
+) (admission.Admitter, error) {
 	// Parse the AlertManager URL
 	u, err := url.Parse(config.Connection.URL)
 	if err != nil {
@@ -133,7 +133,7 @@ func (a *admitter) Sync(ctx context.Context, results chan<- result.AsyncAdmissio
 	return nil
 }
 
-// ShouldAdmit implements watcher.Admitter interface
+// ShouldAdmit implements admission.Admitter interface
 // Returns an AdmissionResult indicating whether to admit and any firing alerts
 func (a *admitter) shouldAdmit(ctx context.Context) (result.AdmissionResult, error) {
 	builder := result.NewAdmissionResultBuilder(a.admissionCheckName)

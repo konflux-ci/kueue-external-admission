@@ -22,7 +22,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/konflux-ci/kueue-external-admission/pkg/watcher"
+	"github.com/konflux-ci/kueue-external-admission/pkg/admission"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/clock"
@@ -46,11 +46,11 @@ import (
 type WorkloadReconciler struct {
 	client           client.Client
 	Scheme           *runtime.Scheme
-	admissionService *watcher.AdmissionService // TODO: abstract with an interface.
+	admissionService *admission.AdmissionService // TODO: abstract with an interface.
 	clock            clock.Clock
 }
 
-func NewWorkloadController(client client.Client, schema *runtime.Scheme, admissionService *watcher.AdmissionService, clock clock.Clock) *WorkloadReconciler {
+func NewWorkloadController(client client.Client, schema *runtime.Scheme, admissionService *admission.AdmissionService, clock clock.Clock) *WorkloadReconciler {
 	return &WorkloadReconciler{
 		client,
 		schema,
@@ -182,7 +182,7 @@ type WorkloadLister struct {
 	client client.Client
 }
 
-var _ watcher.Lister = &WorkloadLister{}
+var _ admission.Lister = &WorkloadLister{}
 
 func NewWorkloadLister(client client.Client) *WorkloadLister {
 	return &WorkloadLister{client: client}
