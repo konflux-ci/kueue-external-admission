@@ -12,12 +12,11 @@ import (
 
 // AdmissionManager manages Admitters for different AdmissionChecks
 type AdmissionManager struct {
-	logger               logr.Logger
-	admitterCommands     chan AdmitterCMD                            // Commands to add/remove admitters
-	incomingResults      chan result.AsyncAdmissionResult            // Admission results from admitters
-	resultNotifications  chan result.AdmissionResult                 // Notifications about result changes
-	removalNotifications chan string                                 // Notifications about admitter removals
-	resultSnapshot       chan map[string]result.AsyncAdmissionResult // Snapshots of current results
+	logger              logr.Logger
+	admitterCommands    chan AdmitterCMD                            // Commands to add/remove admitters
+	incomingResults     chan result.AsyncAdmissionResult            // Admission results from admitters
+	resultNotifications chan result.AdmissionResult                 // Notifications about result changes
+	resultSnapshot      chan map[string]result.AsyncAdmissionResult // Snapshots of current results
 }
 
 // NewManager creates a new AdmissionService
@@ -25,12 +24,11 @@ type AdmissionManager struct {
 func NewManager(logger logr.Logger) *AdmissionManager {
 	return &AdmissionManager{
 		// sync.Map requires no initialization - zero value is ready to use
-		logger:               logger,
-		incomingResults:      make(chan result.AsyncAdmissionResult),
-		admitterCommands:     make(chan AdmitterCMD),
-		resultNotifications:  make(chan result.AdmissionResult, 100),
-		removalNotifications: make(chan string),
-		resultSnapshot:       make(chan map[string]result.AsyncAdmissionResult),
+		logger:              logger,
+		incomingResults:     make(chan result.AsyncAdmissionResult),
+		admitterCommands:    make(chan AdmitterCMD),
+		resultNotifications: make(chan result.AdmissionResult, 100),
+		resultSnapshot:      make(chan map[string]result.AsyncAdmissionResult),
 	}
 }
 
@@ -38,7 +36,7 @@ func (s *AdmissionManager) Start(ctx context.Context) error {
 	s.logger.Info("Starting AdmissionService")
 
 	admitterManager := NewAdmitterManager(s.logger)
-	go admitterManager.Run(ctx, s.admitterCommands, s.incomingResults, s.removalNotifications)
+	go admitterManager.Run(ctx, s.admitterCommands, s.incomingResults)
 
 	resultManager := NewResultManager(s.logger)
 	go resultManager.Run(
@@ -74,48 +72,45 @@ func (s *AdmissionManager) AdmissionResultChanged() <-chan result.AdmissionResul
 func (s *AdmissionManager) ShouldAdmitWorkload(
 	ctx context.Context, checkNames []string,
 ) (result.AggregatedAdmissionResult, error) {
-	return s.shouldAdmitWorkload(ctx, checkNames, s.resultSnapshot)
+
+	select {
+	case <-ctx.Done():
+		s.logger.Info("Stopping shouldAdmitWorkload, context done")
+		return nil, ctx.Err()
+	case snapshot := <-s.resultSnapshot:
+		s.logger.Info("Received results from channel", "results", snapshot, "count", len(snapshot))
+		return s.shouldAdmitWorkload(checkNames, snapshot)
+	}
 }
 
 // ShouldAdmitWorkload aggregates admission decisions from multiple admitters
 // it uses the last result from the admitters to determine the admission decision
 func (s *AdmissionManager) shouldAdmitWorkload(
-	ctx context.Context,
 	checkNames []string,
-	resultSnapshot <-chan map[string]result.AsyncAdmissionResult,
+	resultSnapshot map[string]result.AsyncAdmissionResult,
 ) (result.AggregatedAdmissionResult, error) {
 	s.logger.Info("Checking admission for workload", "checks", checkNames)
 
 	builder := result.NewAggregatedAdmissionResultBuilder()
 	builder.SetAdmissionAllowed()
 
-	var resultsRegistry map[string]result.AsyncAdmissionResult
-
-	select {
-	case <-ctx.Done():
-		s.logger.Info("Stopping shouldAdmitWorkload, context done")
-		return nil, ctx.Err()
-	case resultsRegistry = <-resultSnapshot:
-		s.logger.Info("Received results from channel", "results", resultsRegistry, "count", len(resultsRegistry))
-
-		// Debug: Check each result in detail
-		for checkName, asyncResult := range resultsRegistry {
-			if asyncResult.AdmissionResult != nil {
-				s.logger.Info("Channel result details",
-					"check", checkName,
-					"shouldAdmit", asyncResult.AdmissionResult.ShouldAdmit(),
-					"checkName", asyncResult.AdmissionResult.CheckName(),
-					"details", asyncResult.AdmissionResult.Details(),
-					"error", asyncResult.Error,
-				)
-			} else {
-				s.logger.Info("Channel result has NIL AdmissionResult!", "check", checkName)
-			}
+	// Debug: Check each result in detail
+	for checkName, asyncResult := range resultSnapshot {
+		if asyncResult.AdmissionResult != nil {
+			s.logger.Info("Channel result details",
+				"check", checkName,
+				"shouldAdmit", asyncResult.AdmissionResult.ShouldAdmit(),
+				"checkName", asyncResult.AdmissionResult.CheckName(),
+				"details", asyncResult.AdmissionResult.Details(),
+				"error", asyncResult.Error,
+			)
+		} else {
+			s.logger.Info("Channel result has NIL AdmissionResult!", "check", checkName)
 		}
 	}
 
 	for _, checkName := range checkNames {
-		lastResult, exists := resultsRegistry[checkName]
+		lastResult, exists := resultSnapshot[checkName]
 		if !exists {
 			continue
 		}

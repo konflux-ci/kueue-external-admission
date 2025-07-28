@@ -49,7 +49,6 @@ func (m *AdmitterManager) Run(
 	ctx context.Context,
 	admitterCommands chan AdmitterCMD,
 	incomingResults chan result.AsyncAdmissionResult,
-	removalNotifications chan<- string,
 ) {
 	for {
 		select {
@@ -66,9 +65,6 @@ func (m *AdmitterManager) Run(
 				m.setAdmitter(ctx, c.AdmissionCheckName, c.Admitter, admitterCommands, incomingResults)
 			case AdmitterCMDRemove:
 				m.removeAdmitter(c.AdmissionCheckName)
-				// TODO: there might be a race condition here, if the admitter is removed and the result is published
-				// need to consider a periodic cleanup of the results registry
-				removalNotifications <- c.AdmissionCheckName
 			case AdmitterCMDList:
 				admitters := make(map[string]bool)
 				for admissionCheckName := range m.admitters {

@@ -40,16 +40,23 @@ func (m *ResultManager) Run(
 		case <-ctx.Done():
 			m.logger.Info("Stopping readAsyncAdmissionResults, context done")
 			return
+
+		// Clean the local results registry. Remove results for which the admitter is not present.
 		case <-ticker.C:
 			m.removeStaleResults(admitterCommands)
+
+		// Publish the current state of the results registry.
 		case resultSnapshot <- maps.Clone(resultsRegistry):
 			m.logger.Info("PUBLISHING results", "registrySize", len(resultsRegistry), "results", resultsRegistry)
+
+		// Receive new results from the admitters.
 		case newResult := <-incomingResults:
 			m.logger.Info(
 				"RECEIVED new result",
 				"admissionCheck", newResult.AdmissionResult.CheckName(),
 				"registrySize", len(resultsRegistry),
 			)
+
 			admissionCheckName := newResult.AdmissionResult.CheckName()
 			m.logger.Info(
 				"Received async admission result",
