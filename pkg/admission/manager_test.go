@@ -50,14 +50,13 @@ func newMockAdmitter(shouldAdmit bool, details map[string][]string) *mockAdmitte
 
 func TestAdmissionService_Creation(t *testing.T) {
 	RegisterTestingT(t)
-	service, eventsCh := NewAdmissionService(logr.Discard())
+	service := NewAdmissionService(logr.Discard())
 	Expect(service).ToNot(BeNil(), "Expected non-nil AdmissionService")
-	Expect(eventsCh).ToNot(BeNil(), "Expected non-nil events channel")
 }
 
 func TestAdmissionService_ConcurrentAccess(t *testing.T) {
 	RegisterTestingT(t)
-	service, _ := NewAdmissionService(logr.Discard())
+	service := NewAdmissionService(logr.Discard())
 	// Create a test admitter
 	admitter := newMockAdmitter(true, map[string][]string{"test": {"detail1"}})
 
@@ -91,7 +90,7 @@ func TestAdmissionService_ConcurrentAccess(t *testing.T) {
 
 func TestAdmissionService_InterfaceFlexibility(t *testing.T) {
 	RegisterTestingT(t)
-	service, _ := NewAdmissionService(logr.Discard())
+	service := NewAdmissionService(logr.Discard())
 
 	// Create test server that returns empty alerts
 	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -128,7 +127,7 @@ func TestAdmissionService_InterfaceFlexibility(t *testing.T) {
 
 func TestAdmissionService_RetrieveMultipleAdmitters(t *testing.T) {
 	RegisterTestingT(t)
-	service, _ := NewAdmissionService(logr.Discard())
+	service := NewAdmissionService(logr.Discard())
 
 	// Create multiple admitters
 	admitter1 := newMockAdmitter(true, map[string][]string{"provider1": {"detail1"}})

@@ -50,7 +50,12 @@ type WorkloadReconciler struct {
 	clock            clock.Clock
 }
 
-func NewWorkloadController(client client.Client, schema *runtime.Scheme, admissionService *admission.AdmissionManager, clock clock.Clock) *WorkloadReconciler {
+func NewWorkloadController(
+	client client.Client,
+	schema *runtime.Scheme,
+	admissionService *admission.AdmissionManager,
+	clock clock.Clock,
+) *WorkloadReconciler {
 	return &WorkloadReconciler{
 		client,
 		schema,

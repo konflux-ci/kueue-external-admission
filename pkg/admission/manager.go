@@ -9,7 +9,6 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/konflux-ci/kueue-external-admission/pkg/admission/result"
-	"sigs.k8s.io/controller-runtime/pkg/event"
 )
 
 // Admitter determines whether admission should be allowed
@@ -43,10 +42,8 @@ type AdmitterEntry struct {
 // Uses sync.Map internally but exposes only type-safe wrapper methods
 // This ensures consistent logging and proper type safety
 type AdmissionManager struct {
-	admitters sync.Map // private sync.Map - hides direct access to Store/Load/Delete/Range
-	logger    logr.Logger
-	// TODO: remove this channel it doesn't belong here. should pass it to the monitor directly from main
-	eventsChannel          chan<- event.GenericEvent
+	admitters              sync.Map // private sync.Map - hides direct access to Store/Load/Delete/Range
+	logger                 logr.Logger
 	admitterChangeRequests chan AdmitterChangeRequest       // Channel for notifying about admitter change requests
 	asyncAdmissionResults  chan result.AsyncAdmissionResult // Channel for notifying about async admission results
 	admissionResultChanged chan result.AdmissionResult
@@ -54,16 +51,13 @@ type AdmissionManager struct {
 
 // NewAdmissionService creates a new AdmissionService
 // The internal sync.Map is ready to use without explicit initialization
-func NewAdmissionService(logger logr.Logger) (*AdmissionManager, <-chan event.GenericEvent) {
-	eventsCh := make(chan event.GenericEvent)
-
+func NewAdmissionService(logger logr.Logger) *AdmissionManager {
 	return &AdmissionManager{
 		// sync.Map requires no initialization - zero value is ready to use
 		logger:                 logger,
-		eventsChannel:          eventsCh,
 		asyncAdmissionResults:  make(chan result.AsyncAdmissionResult),
 		admitterChangeRequests: make(chan AdmitterChangeRequest),
-	}, eventsCh
+	}
 }
 
 func (s *AdmissionManager) Start(ctx context.Context) error {

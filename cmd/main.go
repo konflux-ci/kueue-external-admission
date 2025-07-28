@@ -32,6 +32,7 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/certwatcher"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
@@ -293,7 +294,7 @@ func main() {
 	}
 
 	// Initialize the admission service
-	admissionService, eventCh := admission.NewAdmissionService(setupLog.WithName("admission-service"))
+	admissionService := admission.NewAdmissionService(setupLog.WithName("admission-service"))
 	// Add admission service to manager so it starts/stops with the manager
 	if err = mgr.Add(admissionService); err != nil {
 		setupLog.Error(err, "unable to add admission service to manager")
@@ -321,16 +322,20 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Create alert enqueuer to watch for alert state changes
+	// Create event channel
+	eventCh := make(chan event.GenericEvent)
+
+	// Create enqueuer to watch for admission result changes
 	enqueuer := admission.NewEnqueuer(
 		admissionService,
 		controller.NewWorkloadLister(mgr.GetClient()),
+		eventCh,
 		mgr.GetClient(),
 		30*time.Second, // Check every 30 seconds
 		setupLog.WithName("enqueuer"),
 	)
 
-	// Add alert monitor to manager so it starts/stops with the manager
+	// Add alert enqueuer to manager so it starts/stops with the manager
 	if err = mgr.Add(enqueuer); err != nil {
 		setupLog.Error(err, "unable to add enqueuer to manager")
 		os.Exit(1)

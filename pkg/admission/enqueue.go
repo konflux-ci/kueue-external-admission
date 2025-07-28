@@ -25,6 +25,7 @@ type Lister interface {
 type Enqueuer struct {
 	admissionService *AdmissionManager
 	lister           Lister
+	eventCh          chan<- event.GenericEvent
 	client           client.Client
 	period           time.Duration
 	logger           logr.Logger
@@ -36,6 +37,7 @@ var _ manager.Runnable = &Enqueuer{}
 func NewEnqueuer(
 	admissionService *AdmissionManager,
 	lister Lister,
+	eventCh chan<- event.GenericEvent,
 	client client.Client,
 	period time.Duration,
 	logger logr.Logger,
@@ -43,6 +45,7 @@ func NewEnqueuer(
 	return &Enqueuer{
 		admissionService: admissionService,
 		lister:           lister,
+		eventCh:          eventCh,
 		client:           client,
 		period:           period,
 		logger:           logger,
@@ -121,7 +124,7 @@ func (m *Enqueuer) checkAndEnqueueEvents(ctx context.Context, admissionResult re
 	for wl := range filteredWorkloads {
 		// Enqueue generic event to trigger workload reconciliation
 		select {
-		case m.admissionService.eventsChannel <- event.GenericEvent{Object: wl}:
+		case m.eventCh <- event.GenericEvent{Object: wl}:
 			m.logger.Info("Enqueuing event for workload", "workload", wl.Name)
 		default:
 			m.logger.Info("Events channel full, skipping enqueue", "workload", wl.Name)
