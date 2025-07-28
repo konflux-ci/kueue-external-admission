@@ -47,9 +47,6 @@ func (m *mockAdmitter) Sync(ctx context.Context, asyncAdmissionResults chan<- re
 		case <-ctx.Done():
 			return
 		}
-
-		// Keep running until context is cancelled to simulate real behavior
-		<-ctx.Done()
 	}()
 
 	return nil
@@ -81,16 +78,10 @@ func TestAdmissionService_ConcurrentAccess(t *testing.T) {
 		_ = service.Start(ctx)
 	}()
 
-	// Give the service a moment to start
-	time.Sleep(100 * time.Millisecond)
-
 	// Create a test admitter
 	admitter := newMockAdmitter("test-key", true, map[string][]string{"test": {"detail1"}})
 
 	service.SetAdmitter("test-key", admitter)
-
-	// Give some time for the admitter to be set
-	time.Sleep(100 * time.Millisecond)
 
 	done := make(chan bool, 10)
 
@@ -101,17 +92,19 @@ func TestAdmissionService_ConcurrentAccess(t *testing.T) {
 
 			// Test SetAdmitter
 			testAdmitter := newMockAdmitter("concurrent-test", true, map[string][]string{"concurrent": {"detail1"}})
+			t.Log("trying to set admitter")
 			service.SetAdmitter("concurrent-test", testAdmitter)
-
-			// Give some time for the admitter to be set
-			time.Sleep(50 * time.Millisecond)
+			t.Log("SetAdmitter")
 
 			// Test retrieving admitter
-			results, exists := <-service.publishResults
-			Expect(exists).To(BeTrue(), "Expected to find admitter")
+			t.Log("trying to retrieve results")
+			results := <-service.publishResults
+			t.Log("retrieved admitter")
 			Expect(results).ToNot(BeNil(), "Expected non-nil retrieved admitter")
 
+			t.Log("removing admitter")
 			service.RemoveAdmitter("concurrent-test")
+			t.Log("removed admitter")
 		}()
 	}
 

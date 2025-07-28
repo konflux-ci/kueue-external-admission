@@ -11,6 +11,15 @@ import (
 	"github.com/konflux-ci/kueue-external-admission/pkg/admission/result"
 )
 
+// Helper function for debugging
+func getMapKeys(m map[string]result.AsyncAdmissionResult) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
 // Admitter determines whether admission should be allowed
 type Admitter interface {
 	Sync(context.Context, chan<- result.AsyncAdmissionResult) error
@@ -58,7 +67,7 @@ func NewAdmissionService(logger logr.Logger) *AdmissionManager {
 		logger:                 logger,
 		asyncAdmissionResults:  make(chan result.AsyncAdmissionResult),
 		admitterChangeRequests: make(chan AdmitterChangeRequest),
-		admissionResultChanged: make(chan result.AdmissionResult),
+		admissionResultChanged: make(chan result.AdmissionResult, 100),
 		admitterRemoved:        make(chan string),
 		publishResults:         make(chan map[string]result.AsyncAdmissionResult),
 	}
@@ -67,7 +76,13 @@ func NewAdmissionService(logger logr.Logger) *AdmissionManager {
 func (s *AdmissionManager) Start(ctx context.Context) error {
 	s.logger.Info("Starting AdmissionService")
 	go s.manageAdmitters(ctx, s.admitterChangeRequests)
-	go s.readAsyncAdmissionResults(ctx, s.asyncAdmissionResults, s.admissionResultChanged, s.publishResults)
+	go s.readAsyncAdmissionResults(
+		ctx,
+		s.asyncAdmissionResults,
+		s.admissionResultChanged,
+		s.publishResults,
+		s.admitterRemoved,
+	)
 
 	<-ctx.Done()
 	s.logger.Info("Stopping AdmissionService, context done")
@@ -98,21 +113,26 @@ func (s *AdmissionManager) readAsyncAdmissionResults(
 	asyncAdmissionResults <-chan result.AsyncAdmissionResult,
 	admissionResultChangedChannel chan<- result.AdmissionResult,
 	publishResults chan<- map[string]result.AsyncAdmissionResult,
+	admitterRemoved <-chan string,
 ) {
 
 	resultsRegistry := make(map[string]result.AsyncAdmissionResult)
 
 	for {
+		s.logger.Info("Select loop iteration", "registrySize", len(resultsRegistry))
 		select {
 		case <-ctx.Done():
 			s.logger.Info("Stopping readAsyncAdmissionResults, context done")
 			return
-		case admissionCheckName := <-s.admitterRemoved:
+		case admissionCheckName := <-admitterRemoved:
+			s.logger.Info("REMOVING admitter from registry", "admissionCheck", admissionCheckName, "registrySize", len(resultsRegistry))
 			// Admitter was removed from the manager, remove its latest result from the cache
 			delete(resultsRegistry, admissionCheckName)
+			s.logger.Info("AFTER removal", "registrySize", len(resultsRegistry))
 		case publishResults <- maps.Clone(resultsRegistry):
-			s.logger.Info("Publishing results", "results", resultsRegistry)
+			s.logger.Info("PUBLISHING results", "registrySize", len(resultsRegistry), "results", resultsRegistry)
 		case newResult := <-asyncAdmissionResults:
+			s.logger.Info("RECEIVED new result", "admissionCheck", newResult.AdmissionResult.CheckName(), "registrySize", len(resultsRegistry))
 			admissionCheckName := newResult.AdmissionResult.CheckName()
 			s.logger.Info(
 				"Received async admission result",
@@ -121,7 +141,7 @@ func (s *AdmissionManager) readAsyncAdmissionResults(
 				"details", newResult.AdmissionResult.Details(),
 				"error", newResult.Error,
 			)
-		
+
 			admissionMetrics := NewAdmissionMetrics(admissionCheckName)
 
 			if newResult.Error != nil {
@@ -138,7 +158,24 @@ func (s *AdmissionManager) readAsyncAdmissionResults(
 			}
 
 			changed := !reflect.DeepEqual(newResult, lastResult)
+			s.logger.Info("STORING result", "admissionCheck", admissionCheckName, "changed", changed, "beforeSize", len(resultsRegistry))
 			resultsRegistry[admissionCheckName] = newResult
+
+			// Debug: Check what's actually in the stored result
+			storedResult := resultsRegistry[admissionCheckName]
+			if storedResult.AdmissionResult != nil {
+				s.logger.Info("STORED result details",
+					"admissionCheck", admissionCheckName,
+					"shouldAdmit", storedResult.AdmissionResult.ShouldAdmit(),
+					"checkName", storedResult.AdmissionResult.CheckName(),
+					"details", storedResult.AdmissionResult.Details(),
+					"error", storedResult.Error,
+				)
+			} else {
+				s.logger.Info("STORED result has NIL AdmissionResult!", "admissionCheck", admissionCheckName)
+			}
+
+			s.logger.Info("AFTER storing", "registrySize", len(resultsRegistry), "keys", getMapKeys(resultsRegistry))
 
 			if changed {
 				if newResult.Error == nil {
@@ -256,7 +293,22 @@ func (s *AdmissionManager) shouldAdmitWorkload(
 		s.logger.Info("Stopping shouldAdmitWorkload, context done")
 		return nil, ctx.Err()
 	case resultsRegistry = <-publishResults:
-		s.logger.Info("Received results", "results", resultsRegistry)
+		s.logger.Info("Received results from channel", "results", resultsRegistry, "count", len(resultsRegistry))
+
+		// Debug: Check each result in detail
+		for checkName, asyncResult := range resultsRegistry {
+			if asyncResult.AdmissionResult != nil {
+				s.logger.Info("Channel result details",
+					"check", checkName,
+					"shouldAdmit", asyncResult.AdmissionResult.ShouldAdmit(),
+					"checkName", asyncResult.AdmissionResult.CheckName(),
+					"details", asyncResult.AdmissionResult.Details(),
+					"error", asyncResult.Error,
+				)
+			} else {
+				s.logger.Info("Channel result has NIL AdmissionResult!", "check", checkName)
+			}
+		}
 	}
 
 	for _, checkName := range checkNames {
