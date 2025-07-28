@@ -20,29 +20,32 @@ type aggregatedAdmissionResultBuilder struct {
 	providerDetails map[string][]string
 }
 
-func NewAggregatedAdmissionResult() AggregateAdmissionResultBuilder {
+func NewAggregatedAdmissionResultBuilder() AggregatedAdmissionResultBuilder {
 	return &aggregatedAdmissionResultBuilder{
 		shouldAdmit:     true,
 		providerDetails: make(map[string][]string),
 	}
 }
 
-var _ AggregateAdmissionResultBuilder = &aggregatedAdmissionResultBuilder{}
+var _ AggregatedAdmissionResultBuilder = &aggregatedAdmissionResultBuilder{}
 
 // AddProviderDetails implements AggregateAdmissionResultBuilder.
-func (a *aggregatedAdmissionResultBuilder) AddProviderDetails(checkName string, details []string) AggregateAdmissionResultBuilder {
+func (a *aggregatedAdmissionResultBuilder) AddProviderDetails(
+	checkName string,
+	details []string,
+) AggregatedAdmissionResultBuilder {
 	a.providerDetails[checkName] = details
 	return a
 }
 
 // SetAdmissionAllowed implements AggregateAdmissionResultBuilder.
-func (a *aggregatedAdmissionResultBuilder) SetAdmissionAllowed() AggregateAdmissionResultBuilder {
+func (a *aggregatedAdmissionResultBuilder) SetAdmissionAllowed() AggregatedAdmissionResultBuilder {
 	a.shouldAdmit = true
 	return a
 }
 
 // SetAdmissionDenied implements AggregateAdmissionResultBuilder.
-func (a *aggregatedAdmissionResultBuilder) SetAdmissionDenied() AggregateAdmissionResultBuilder {
+func (a *aggregatedAdmissionResultBuilder) SetAdmissionDenied() AggregatedAdmissionResultBuilder {
 	a.shouldAdmit = false
 	return a
 }

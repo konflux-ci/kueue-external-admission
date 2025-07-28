@@ -14,7 +14,6 @@ import (
 
 // Admitter determines whether admission should be allowed
 type Admitter interface {
-	ShouldAdmit(context.Context) (result.AdmissionResult, error)
 	Sync(context.Context, chan<- result.AsyncAdmissionResult) error
 }
 
@@ -245,10 +244,13 @@ func (s *AdmissionService) getAdmitterEntry(admissionCheckName string) (Admitter
 
 // ShouldAdmitWorkload aggregates admission decisions from multiple admitters
 // it uses the last result from the admitters to determine the admission decision
-func (s *AdmissionService) ShouldAdmitWorkload(ctx context.Context, checkNames []string) (result.AdmissionResult, error) {
+func (s *AdmissionService) ShouldAdmitWorkload(
+	ctx context.Context,
+	checkNames []string,
+) (result.AggregatedAdmissionResult, error) {
 	s.logger.Info("Checking admission for workload", "checks", checkNames)
 
-	builder := result.NewAdmissionResultBuilder()
+	builder := result.NewAggregatedAdmissionResultBuilder()
 	builder.SetAdmissionAllowed()
 
 	for _, checkName := range checkNames {
@@ -266,10 +268,10 @@ func (s *AdmissionService) ShouldAdmitWorkload(ctx context.Context, checkNames [
 			}
 			shouldAdmit = admitterEntry.LastResult.AdmissionResult.ShouldAdmit()
 			// Aggregate provider details from all checks
-			builder.AddDetails(admitterEntry.LastResult.AdmissionResult.Details()...)
+			builder.AddProviderDetails(checkName, admitterEntry.LastResult.AdmissionResult.Details())
 		} else {
 			s.logger.Info("No last result found for AdmissionCheck", "check", checkName)
-			builder.AddDetails("No last result found for AdmissionCheck. Denied by default.")
+			builder.AddProviderDetails(checkName, []string{"No last result found for AdmissionCheck. Denied by default."})
 			shouldAdmit = false
 
 		}
@@ -287,7 +289,7 @@ func (s *AdmissionService) ShouldAdmitWorkload(ctx context.Context, checkNames [
 
 	s.logger.Info("Workload admission decision completed",
 		"shouldAdmit", finalResult.ShouldAdmit(),
-		"details", finalResult.Details(),
+		"providerDetails", finalResult.GetProviderDetails(),
 		"checksEvaluated", len(checkNames),
 	)
 

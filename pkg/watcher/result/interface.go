@@ -22,9 +22,9 @@ type AggregatedAdmissionResult interface {
 }
 
 // AdmissionResultBuilder allows providers to construct AdmissionResult instances
-type AggregateAdmissionResultBuilder interface {
-	SetAdmissionDenied() AggregateAdmissionResultBuilder
-	SetAdmissionAllowed() AggregateAdmissionResultBuilder
-	AddProviderDetails(checkName string, details []string) AggregateAdmissionResultBuilder
+type AggregatedAdmissionResultBuilder interface {
+	SetAdmissionDenied() AggregatedAdmissionResultBuilder
+	SetAdmissionAllowed() AggregatedAdmissionResultBuilder
+	AddProviderDetails(checkName string, details []string) AggregatedAdmissionResultBuilder
 	Build() AggregatedAdmissionResult
 }

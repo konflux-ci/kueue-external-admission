@@ -114,7 +114,7 @@ func (a *admitter) Sync(ctx context.Context, results chan<- result.AsyncAdmissio
 				return
 			case <-ticker.C:
 				a.logger.Info("Starting sync iteration", "admissionCheck", a.admissionCheckName)
-				result, err := a.shouldAdmit(ctx)
+				ret, err := a.shouldAdmit(ctx)
 				if err != nil {
 					a.logger.Error(err, "Failed to get alerts from AlertManager")
 					results <- result.AsyncAdmissionResult{
@@ -123,7 +123,7 @@ func (a *admitter) Sync(ctx context.Context, results chan<- result.AsyncAdmissio
 					}
 				} else {
 					results <- result.AsyncAdmissionResult{
-						AdmissionResult: result,
+						AdmissionResult: ret,
 						Error:           nil,
 					}
 				}

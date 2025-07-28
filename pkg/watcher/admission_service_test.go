@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/go-logr/logr"
+	"github.com/konflux-ci/kueue-external-admission/pkg/watcher/result"
 	. "github.com/onsi/gomega"
 	"github.com/prometheus/alertmanager/api/v2/models"
 )
@@ -19,12 +20,12 @@ type mockAdmitter struct {
 	err         error
 }
 
-func (m *mockAdmitter) ShouldAdmit(ctx context.Context) (AdmissionResult, error) {
+func (m *mockAdmitter) ShouldAdmit(ctx context.Context) (result.AggregatedAdmissionResult, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
 
-	builder := NewAdmissionResult()
+	builder := result.NewAggregatedAdmissionResultBuilder()
 	if !m.shouldAdmit {
 		builder.SetAdmissionDenied()
 	}
@@ -36,7 +37,7 @@ func (m *mockAdmitter) ShouldAdmit(ctx context.Context) (AdmissionResult, error)
 	return builder.Build(), nil
 }
 
-func (m *mockAdmitter) Sync(ctx context.Context, asyncAdmissionResults chan<- AsyncAdmissionResult) error {
+func (m *mockAdmitter) Sync(ctx context.Context, asyncAdmissionResults chan<- result.AsyncAdmissionResult) error {
 	return nil
 }
 

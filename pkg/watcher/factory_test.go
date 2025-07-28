@@ -25,6 +25,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	konfluxciv1alpha1 "github.com/konflux-ci/kueue-external-admission/api/konflux-ci.dev/v1alpha1"
+	"github.com/konflux-ci/kueue-external-admission/pkg/watcher/result"
 )
 
 func init() {
@@ -43,12 +44,12 @@ func init() {
 // mockTestAdmitter is a simple mock for factory testing
 type mockTestAdmitter struct{}
 
-func (m *mockTestAdmitter) ShouldAdmit(ctx context.Context) (AdmissionResult, error) {
-	builder := NewAdmissionResult()
+func (m *mockTestAdmitter) ShouldAdmit(ctx context.Context) (result.AggregatedAdmissionResult, error) {
+	builder := result.NewAggregatedAdmissionResultBuilder()
 	return builder.Build(), nil
 }
 
-func (m *mockTestAdmitter) Sync(ctx context.Context, asyncAdmissionResults chan<- AsyncAdmissionResult) error {
+func (m *mockTestAdmitter) Sync(ctx context.Context, asyncAdmissionResults chan<- result.AsyncAdmissionResult) error {
 	return nil
 }
 

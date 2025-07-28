@@ -112,7 +112,7 @@ func (m *Monitor) checkAndEmitEvents(ctx context.Context, admissionResult result
 		// TODO: this is a hack to get the workloads that are affected by the admission check that changed.
 		// we should use an index instead.
 		for _, check := range wl.Status.AdmissionChecks {
-			if _, ok := admissionResult.GetProviderDetails()[check.Name]; ok {
+			if admissionResult.CheckName() == check.Name {
 				filteredWorkloads[wl] = true
 			}
 		}
