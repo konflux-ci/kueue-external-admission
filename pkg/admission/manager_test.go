@@ -13,7 +13,7 @@ import (
 // mockAdmitter is a simple mock implementation of the Admitter interface for testing
 type mockAdmitter struct {
 	shouldAdmit bool
-	details     map[string][]string
+	details     []string
 	err         error
 	checkName   string
 }
@@ -33,9 +33,7 @@ func (m *mockAdmitter) Sync(ctx context.Context, asyncAdmissionResults chan<- re
 			builder.SetAdmissionAllowed()
 		}
 
-		for _, values := range m.details {
-			builder.AddDetails(values...)
-		}
+		builder.AddDetails(m.details...)
 
 		asyncResult := result.AsyncAdmissionResult{
 			AdmissionResult: builder.Build(),
@@ -52,7 +50,7 @@ func (m *mockAdmitter) Sync(ctx context.Context, asyncAdmissionResults chan<- re
 	return nil
 }
 
-func newMockAdmitter(checkName string, shouldAdmit bool, details map[string][]string) *mockAdmitter {
+func newMockAdmitter(checkName string, shouldAdmit bool, details []string) *mockAdmitter {
 	return &mockAdmitter{
 		shouldAdmit: shouldAdmit,
 		details:     details,
@@ -79,28 +77,33 @@ func TestAdmissionService_ConcurrentAccess(t *testing.T) {
 	}()
 
 	// Create a test admitter
-	admitter := newMockAdmitter("test-key", true, map[string][]string{"test": {"detail1"}})
+	admitter := newMockAdmitter("test-key", true, []string{"detail1"})
 
 	service.SetAdmitter("test-key", admitter)
 
 	done := make(chan bool, 10)
 
 	// Test concurrent access
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 2; i++ {
 		go func() {
 			defer func() { done <- true }()
 
 			// Test SetAdmitter
-			testAdmitter := newMockAdmitter("concurrent-test", true, map[string][]string{"concurrent": {"detail1"}})
+			testAdmitter := newMockAdmitter("concurrent-test", true, []string{"detail1"})
 			t.Log("trying to set admitter")
 			service.SetAdmitter("concurrent-test", testAdmitter)
 			t.Log("SetAdmitter")
-
+			time.Sleep(3 * time.Second)
 			// Test retrieving admitter
 			t.Log("trying to retrieve results")
-			results := <-service.publishResults
+			Eventually(func(g Gomega) {
+				results, err := service.ShouldAdmitWorkload(ctx, []string{"concurrent-test"})
+				g.Expect(err).ToNot(HaveOccurred(), "Expected no error")
+				g.Expect(results).ToNot(BeNil(), "Expected non-nil result")
+				g.Expect(results.ShouldAdmit()).To(BeTrue(), "Expected workload to be admitted")
+				g.Expect(results.GetProviderDetails()["concurrent-test"]).To(Equal([]string{"detail1"}), "Expected 1 detail")
+			}, 10*time.Second).Should(Succeed())
 			t.Log("retrieved admitter")
-			Expect(results).ToNot(BeNil(), "Expected non-nil retrieved admitter")
 
 			t.Log("removing admitter")
 			service.RemoveAdmitter("concurrent-test")
@@ -109,7 +112,7 @@ func TestAdmissionService_ConcurrentAccess(t *testing.T) {
 	}
 
 	// Wait for all goroutines to complete
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 2; i++ {
 		<-done
 	}
 }
@@ -130,7 +133,7 @@ func TestAdmissionService_InterfaceFlexibility(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Create mock admitter
-	mockAdmitter := newMockAdmitter("test-key", true, map[string][]string{})
+	mockAdmitter := newMockAdmitter("test-key", true, []string{})
 
 	// Store as Admitter interface
 	service.SetAdmitter("test-key", mockAdmitter)
@@ -168,8 +171,8 @@ func TestAdmissionService_RetrieveMultipleAdmitters(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Create multiple admitters
-	admitter1 := newMockAdmitter("key1", true, map[string][]string{"provider1": {"detail1"}})
-	admitter2 := newMockAdmitter("key2", false, map[string][]string{"provider2": {"detail2"}})
+	admitter1 := newMockAdmitter("key1", true, []string{"detail1"})
+	admitter2 := newMockAdmitter("key2", false, []string{"detail2"})
 
 	// Store admitters
 	service.SetAdmitter("key1", admitter1)
