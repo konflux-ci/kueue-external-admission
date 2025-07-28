@@ -321,18 +321,18 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Create alert monitor to watch for alert state changes
-	alertMonitor := admission.NewMonitor(
+	// Create alert enqueuer to watch for alert state changes
+	enqueuer := admission.NewEnqueuer(
 		admissionService,
 		controller.NewWorkloadLister(mgr.GetClient()),
 		mgr.GetClient(),
 		30*time.Second, // Check every 30 seconds
-		setupLog.WithName("alert-monitor"),
+		setupLog.WithName("enqueuer"),
 	)
 
 	// Add alert monitor to manager so it starts/stops with the manager
-	if err = mgr.Add(alertMonitor); err != nil {
-		setupLog.Error(err, "unable to add alert monitor to manager")
+	if err = mgr.Add(enqueuer); err != nil {
+		setupLog.Error(err, "unable to add enqueuer to manager")
 		os.Exit(1)
 	}
 

@@ -21,8 +21,8 @@ type Lister interface {
 	List(context.Context) ([]client.Object, error)
 }
 
-// Monitor periodically checks alert states and emits events when changes occur
-type Monitor struct {
+// Enqueuer periodically checks alert states and emits events when changes occur
+type Enqueuer struct {
 	admissionService *AdmissionManager
 	lister           Lister
 	client           client.Client
@@ -30,17 +30,17 @@ type Monitor struct {
 	logger           logr.Logger
 }
 
-var _ manager.Runnable = &Monitor{}
+var _ manager.Runnable = &Enqueuer{}
 
-// NewMonitor creates a new alert monitor
-func NewMonitor(
+// NewEnqueuer creates a new alert enqueuer
+func NewEnqueuer(
 	admissionService *AdmissionManager,
 	lister Lister,
 	client client.Client,
 	period time.Duration,
 	logger logr.Logger,
-) *Monitor {
-	return &Monitor{
+) *Enqueuer {
+	return &Enqueuer{
 		admissionService: admissionService,
 		lister:           lister,
 		client:           client,
@@ -50,28 +50,28 @@ func NewMonitor(
 }
 
 // Start implements manager.Runnable interface
-func (m *Monitor) Start(ctx context.Context) error {
-	m.logger.Info("Starting monitor")
-	m.monitorLoop(ctx)
+func (m *Enqueuer) Start(ctx context.Context) error {
+	m.logger.Info("Starting enqueuer")
+	m.enqueuerLoop(ctx)
 	return nil
 }
 
-// monitorLoop runs the monitoring loop
-func (m *Monitor) monitorLoop(ctx context.Context) {
+// enqueuerLoop runs the enqueuer loop
+func (m *Enqueuer) enqueuerLoop(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			m.logger.Info("Monitor stopped due to context cancellation")
+			m.logger.Info("Enqueuer stopped due to context cancellation")
 			return
 		case admissionResult := <-m.admissionService.AdmissionResultChanged():
-			m.logger.Info("monitor: Admission result changed", "admissionResult", admissionResult)
-			m.checkAndEmitEvents(ctx, admissionResult)
+			m.logger.Info("enqueuer: Admission result changed", "admissionResult", admissionResult)
+			m.checkAndEnqueueEvents(ctx, admissionResult)
 		}
 	}
 }
 
-// checkAndEmitEvents checks current alert states and emits events for changed workloads
-func (m *Monitor) checkAndEmitEvents(ctx context.Context, admissionResult result.AdmissionResult) {
+// checkAndEnqueueEvents checks current alert states and emits events for changed workloads
+func (m *Enqueuer) checkAndEnqueueEvents(ctx context.Context, admissionResult result.AdmissionResult) {
 	// Get all workloads that need admission checks
 	workloads, err := m.lister.List(ctx)
 	if err != nil {
@@ -119,12 +119,12 @@ func (m *Monitor) checkAndEmitEvents(ctx context.Context, admissionResult result
 	}
 
 	for wl := range filteredWorkloads {
-		// Emit generic event to trigger workload reconciliation
+		// Enqueue generic event to trigger workload reconciliation
 		select {
 		case m.admissionService.eventsChannel <- event.GenericEvent{Object: wl}:
-			m.logger.Info("Emitting event for workload", "workload", wl.Name)
+			m.logger.Info("Enqueuing event for workload", "workload", wl.Name)
 		default:
-			m.logger.Info("Events channel full, skipping event", "workload", wl.Name)
+			m.logger.Info("Events channel full, skipping enqueue", "workload", wl.Name)
 		}
 	}
 }
