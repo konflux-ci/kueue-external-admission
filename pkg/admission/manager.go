@@ -16,6 +16,10 @@ type Admitter interface {
 	Sync(context.Context, chan<- result.AsyncAdmissionResult) error
 }
 
+type MultiCheckAdmitter interface {
+	ShouldAdmitWorkload(checkNames []string) (result.AggregatedAdmissionResult, error)
+}
+
 type AdmitterChangeRequestType = string
 
 const (
@@ -238,10 +242,7 @@ func (s *AdmissionManager) getAdmitterEntry(admissionCheckName string) (Admitter
 
 // ShouldAdmitWorkload aggregates admission decisions from multiple admitters
 // it uses the last result from the admitters to determine the admission decision
-func (s *AdmissionManager) ShouldAdmitWorkload(
-	ctx context.Context,
-	checkNames []string,
-) (result.AggregatedAdmissionResult, error) {
+func (s *AdmissionManager) ShouldAdmitWorkload(checkNames []string) (result.AggregatedAdmissionResult, error) {
 	s.logger.Info("Checking admission for workload", "checks", checkNames)
 
 	builder := result.NewAggregatedAdmissionResultBuilder()

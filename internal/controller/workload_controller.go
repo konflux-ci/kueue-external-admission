@@ -44,22 +44,22 @@ import (
 
 // WorkloadReconciler reconciles a Workload object
 type WorkloadReconciler struct {
-	client           client.Client
-	Scheme           *runtime.Scheme
-	admissionService *admission.AdmissionManager // TODO: abstract with an interface.
-	clock            clock.Clock
+	client   client.Client
+	Scheme   *runtime.Scheme
+	admitter admission.MultiCheckAdmitter
+	clock    clock.Clock
 }
 
 func NewWorkloadController(
 	client client.Client,
 	schema *runtime.Scheme,
-	admissionService *admission.AdmissionManager,
+	admitter admission.MultiCheckAdmitter,
 	clock clock.Clock,
 ) *WorkloadReconciler {
 	return &WorkloadReconciler{
 		client,
 		schema,
-		admissionService,
+		admitter,
 		clock,
 	}
 }
@@ -123,9 +123,9 @@ func (w *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	admissionCheckNames := relevantChecks
 
 	// Check admission using the shared service - this will only check the
-	// AlertManager admitters for the specific admission checks configured
+	// admitters for the specific admission checks configured
 	// for this workload's ClusterQueue
-	admissionResult, err := w.admissionService.ShouldAdmitWorkload(ctx, admissionCheckNames)
+	admissionResult, err := w.admitter.ShouldAdmitWorkload(admissionCheckNames)
 	if err != nil {
 		log.Error(err, "Error checking admission for workload", "workload", wl.Name)
 		return reconcile.Result{}, err
