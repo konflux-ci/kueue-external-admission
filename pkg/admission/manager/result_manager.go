@@ -2,9 +2,11 @@ package manager
 
 import (
 	"context"
+	"fmt"
 	"maps"
 	"reflect"
 	"slices"
+	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/konflux-ci/kueue-external-admission/pkg/admission/monitoring"
@@ -23,40 +25,33 @@ func NewResultManager(logger logr.Logger) *ResultManager {
 	}
 }
 
-func (s *ResultManager) Run(
+func (m *ResultManager) Run(
 	ctx context.Context,
 	incomingResults <-chan result.AsyncAdmissionResult,
 	resultNotifications chan<- result.AdmissionResult,
 	resultSnapshot chan<- map[string]result.AsyncAdmissionResult,
-	removalNotifications <-chan string,
+	admitterCommands chan<- AdmitterCMD,
 ) {
-	resultsRegistry := s.resultsRegistry
-
+	resultsRegistry := m.resultsRegistry
+	ticker := time.NewTicker(1 * time.Minute)
 	for {
-		s.logger.Info("Select loop iteration", "registrySize", len(resultsRegistry))
+		m.logger.Info("Select loop iteration", "registrySize", len(resultsRegistry))
 		select {
 		case <-ctx.Done():
-			s.logger.Info("Stopping readAsyncAdmissionResults, context done")
+			m.logger.Info("Stopping readAsyncAdmissionResults, context done")
 			return
-		case admissionCheckName := <-removalNotifications:
-			s.logger.Info(
-				"REMOVING admitter from registry",
-				"admissionCheck", admissionCheckName,
-				"registrySize", len(resultsRegistry),
-			)
-			// Admitter was removed from the manager, remove its latest result from the cache
-			delete(resultsRegistry, admissionCheckName)
-			s.logger.Info("AFTER removal", "registrySize", len(resultsRegistry))
+		case <-ticker.C:
+			m.removeStaleResults(admitterCommands)
 		case resultSnapshot <- maps.Clone(resultsRegistry):
-			s.logger.Info("PUBLISHING results", "registrySize", len(resultsRegistry), "results", resultsRegistry)
+			m.logger.Info("PUBLISHING results", "registrySize", len(resultsRegistry), "results", resultsRegistry)
 		case newResult := <-incomingResults:
-			s.logger.Info(
+			m.logger.Info(
 				"RECEIVED new result",
 				"admissionCheck", newResult.AdmissionResult.CheckName(),
 				"registrySize", len(resultsRegistry),
 			)
 			admissionCheckName := newResult.AdmissionResult.CheckName()
-			s.logger.Info(
+			m.logger.Info(
 				"Received async admission result",
 				"admissionCheck", admissionCheckName,
 				"result", newResult.AdmissionResult.ShouldAdmit(),
@@ -67,20 +62,20 @@ func (s *ResultManager) Run(
 			admissionMetrics := monitoring.NewAdmissionMetrics(admissionCheckName)
 
 			if newResult.Error != nil {
-				s.logger.Error(newResult.Error, "Error in async admission result")
+				m.logger.Error(newResult.Error, "Error in async admission result")
 				admissionMetrics.RecordError("admission_check_failed")
 			}
 
 			lastResult, ok := resultsRegistry[admissionCheckName]
 			if !ok {
-				s.logger.Info("No last sync result found, using default value", "admissionCheck", admissionCheckName)
+				m.logger.Info("No last sync result found, using default value", "admissionCheck", admissionCheckName)
 				lastResult = result.AsyncAdmissionResult{
 					AdmissionResult: result.NewAdmissionResultBuilder(admissionCheckName).SetAdmissionDenied().Build(),
 				}
 			}
 
 			changed := !reflect.DeepEqual(newResult, lastResult)
-			s.logger.Info(
+			m.logger.Info(
 				"STORING result",
 				"admissionCheck", admissionCheckName,
 				"changed", changed,
@@ -91,7 +86,7 @@ func (s *ResultManager) Run(
 			// Debug: Check what's actually in the stored result
 			storedResult := resultsRegistry[admissionCheckName]
 			if storedResult.AdmissionResult != nil {
-				s.logger.Info("STORED result details",
+				m.logger.Info("STORED result details",
 					"admissionCheck", admissionCheckName,
 					"shouldAdmit", storedResult.AdmissionResult.ShouldAdmit(),
 					"checkName", storedResult.AdmissionResult.CheckName(),
@@ -99,10 +94,10 @@ func (s *ResultManager) Run(
 					"error", storedResult.Error,
 				)
 			} else {
-				s.logger.Info("STORED result has NIL AdmissionResult!", "admissionCheck", admissionCheckName)
+				m.logger.Info("STORED result has NIL AdmissionResult!", "admissionCheck", admissionCheckName)
 			}
 
-			s.logger.Info(
+			m.logger.Info(
 				"AFTER storing",
 				"registrySize", len(resultsRegistry),
 				"keys", slices.Collect(maps.Keys(resultsRegistry)),
@@ -113,7 +108,7 @@ func (s *ResultManager) Run(
 					// Only send successful admission results to the channel
 					resultNotifications <- newResult.AdmissionResult
 				} else {
-					s.logger.Info("Admission result changed but has error, not notifying",
+					m.logger.Info("Admission result changed but has error, not notifying",
 						"admissionCheck", admissionCheckName,
 						"error", newResult.Error)
 				}
@@ -121,4 +116,29 @@ func (s *ResultManager) Run(
 			admissionMetrics.RecordAdmissionCheckStatus(newResult.AdmissionResult.ShouldAdmit())
 		}
 	}
+}
+
+func (m *ResultManager) removeStaleResults(admitterCommands chan<- AdmitterCMD) {
+	m.logger.Info(
+		"REMOVING stale results",
+		"registrySize", len(m.resultsRegistry),
+	)
+
+	cmd := AdmitterCMDList{
+		Result: make(chan map[string]bool),
+	}
+
+	admitterCommands <- cmd
+	select {
+	case <-time.After(10 * time.Second):
+		m.logger.Error(fmt.Errorf("timeout waiting for admitters"), "Timeout waiting for admitters")
+		return
+	case admitters := <-cmd.Result:
+		maps.DeleteFunc(m.resultsRegistry, func(key string, _ result.AsyncAdmissionResult) bool {
+			_, ok := admitters[key]
+			return !ok
+		})
+	}
+
+	m.logger.Info("AFTER removal", "registrySize", len(m.resultsRegistry))
 }

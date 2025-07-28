@@ -23,10 +23,62 @@ type AdmitterEntry struct {
 	Cancel             context.CancelFunc
 }
 
+type AdmitterCMD interface{}
+
+type AdmitterCMDAdd struct {
+	AdmissionCheckName string
+	Admitter           admission.Admitter
+}
+
+type AdmitterCMDRemove struct {
+	AdmissionCheckName string
+}
+
+type AdmitterCMDList struct {
+	Result chan map[string]bool
+}
+
 func NewAdmitterManager(logger logr.Logger) *AdmitterManager {
 	return &AdmitterManager{
 		logger:    logger,
 		admitters: make(map[string]*AdmitterEntry),
+	}
+}
+
+func (m *AdmitterManager) Run(
+	ctx context.Context,
+	admitterCommands chan AdmitterCMD,
+	incomingResults chan result.AsyncAdmissionResult,
+	removalNotifications chan<- string,
+) {
+	for {
+		select {
+		case <-ctx.Done():
+			m.logger.Info("Stopping ManageAdmitters, context done")
+			for admissionCheckName := range m.admitters {
+				m.removeAdmitter(admissionCheckName)
+			}
+			return
+		case cmd := <-admitterCommands:
+			// TODO: generate and id for the admitter
+			switch c := cmd.(type) {
+			case AdmitterCMDAdd:
+				m.setAdmitter(ctx, c.AdmissionCheckName, c.Admitter, admitterCommands, incomingResults)
+			case AdmitterCMDRemove:
+				m.removeAdmitter(c.AdmissionCheckName)
+				// TODO: there might be a race condition here, if the admitter is removed and the result is published
+				// need to consider a periodic cleanup of the results registry
+				removalNotifications <- c.AdmissionCheckName
+			case AdmitterCMDList:
+				admitters := make(map[string]bool)
+				for admissionCheckName := range m.admitters {
+					admitters[admissionCheckName] = true
+				}
+				c.Result <- admitters
+			default:
+				m.logger.Error(fmt.Errorf("unknown command type"), "Unknown command type", "command", cmd)
+			}
+		}
 	}
 }
 
@@ -47,7 +99,7 @@ func (m *AdmitterManager) setAdmitter(
 	ctx context.Context,
 	admissionCheckName string,
 	admitter admission.Admitter,
-	admitterCommands chan<- AdmitterChangeRequest,
+	admitterCommands chan<- AdmitterCMD,
 	incomingResults chan result.AsyncAdmissionResult,
 ) {
 	entry, ok := m.admitters[admissionCheckName]
@@ -72,44 +124,13 @@ func (m *AdmitterManager) setAdmitter(
 		m.logger.Error(err, "Failed to sync admitter", "admissionCheck", admissionCheckName, "retryIn", retryIn)
 		go func() {
 			time.Sleep(retryIn)
-			admitterCommands <- AdmitterChangeRequest{
-				AdmissionCheckName:        admissionCheckName,
-				AdmitterChangeRequestType: AdmitterChangeRequestAdd,
-				Admitter:                  admitter,
+			admitterCommands <- AdmitterCMDAdd{
+				AdmissionCheckName: admissionCheckName,
+				Admitter:           admitter,
 			}
 		}()
 	}
-	admissionMetrics := monitoring.NewAdmissionMetrics(admissionCheckName)
 	// Set initial status to true just to make sure that the metric is set
-	admissionMetrics.RecordAdmissionCheckStatus(true)
+	monitoring.NewAdmissionMetrics(admissionCheckName).RecordAdmissionCheckStatus(false)
 	m.logger.Info("Added admitter for AdmissionCheck", "admissionCheck", admissionCheckName)
-}
-
-func (m *AdmitterManager) Run(
-	ctx context.Context,
-	admitterCommands chan AdmitterChangeRequest,
-	incomingResults chan result.AsyncAdmissionResult,
-	removalNotifications chan<- string,
-) {
-	for {
-		select {
-		case <-ctx.Done():
-			m.logger.Info("Stopping ManageAdmitters, context done")
-			for admissionCheckName := range m.admitters {
-				m.removeAdmitter(admissionCheckName)
-			}
-			return
-		case changeRequest := <-admitterCommands:
-			// TODO: generate and id for the admitter
-			switch changeRequest.AdmitterChangeRequestType {
-			case AdmitterChangeRequestAdd:
-				m.setAdmitter(ctx, changeRequest.AdmissionCheckName, changeRequest.Admitter, admitterCommands, incomingResults)
-			case AdmitterChangeRequestRemove:
-				m.removeAdmitter(changeRequest.AdmissionCheckName)
-				// TODO: there might be a race condition here, if the admitter is removed and the result is published
-				// need to consider a periodic cleanup of the results registry
-				removalNotifications <- changeRequest.AdmissionCheckName
-			}
-		}
-	}
 }

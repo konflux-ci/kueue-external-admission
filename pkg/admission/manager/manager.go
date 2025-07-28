@@ -10,24 +10,10 @@ import (
 	"github.com/konflux-ci/kueue-external-admission/pkg/admission/result"
 )
 
-type AdmitterChangeRequestType = string
-
-const (
-	AdmitterChangeRequestAdd    AdmitterChangeRequestType = "add"
-	AdmitterChangeRequestRemove AdmitterChangeRequestType = "remove"
-)
-
-type AdmitterChangeRequest struct {
-	AdmissionCheckName string
-	AdmitterChangeRequestType
-	// TODO: consider moving the factory to the admission service
-	Admitter admission.Admitter
-}
-
 // AdmissionManager manages Admitters for different AdmissionChecks
 type AdmissionManager struct {
 	logger               logr.Logger
-	admitterCommands     chan AdmitterChangeRequest                  // Commands to add/remove admitters
+	admitterCommands     chan AdmitterCMD                            // Commands to add/remove admitters
 	incomingResults      chan result.AsyncAdmissionResult            // Admission results from admitters
 	resultNotifications  chan result.AdmissionResult                 // Notifications about result changes
 	removalNotifications chan string                                 // Notifications about admitter removals
@@ -41,7 +27,7 @@ func NewManager(logger logr.Logger) *AdmissionManager {
 		// sync.Map requires no initialization - zero value is ready to use
 		logger:               logger,
 		incomingResults:      make(chan result.AsyncAdmissionResult),
-		admitterCommands:     make(chan AdmitterChangeRequest),
+		admitterCommands:     make(chan AdmitterCMD),
 		resultNotifications:  make(chan result.AdmissionResult, 100),
 		removalNotifications: make(chan string),
 		resultSnapshot:       make(chan map[string]result.AsyncAdmissionResult),
@@ -60,7 +46,7 @@ func (s *AdmissionManager) Start(ctx context.Context) error {
 		s.incomingResults,
 		s.resultNotifications,
 		s.resultSnapshot,
-		s.removalNotifications,
+		s.admitterCommands,
 	)
 
 	<-ctx.Done()
@@ -69,17 +55,15 @@ func (s *AdmissionManager) Start(ctx context.Context) error {
 }
 
 func (s *AdmissionManager) SetAdmitter(admissionCheckName string, admitter admission.Admitter) {
-	s.admitterCommands <- AdmitterChangeRequest{
-		AdmissionCheckName:        admissionCheckName,
-		AdmitterChangeRequestType: AdmitterChangeRequestAdd,
-		Admitter:                  admitter,
+	s.admitterCommands <- AdmitterCMDAdd{
+		AdmissionCheckName: admissionCheckName,
+		Admitter:           admitter,
 	}
 }
 
 func (s *AdmissionManager) RemoveAdmitter(admissionCheckName string) {
-	s.admitterCommands <- AdmitterChangeRequest{
-		AdmissionCheckName:        admissionCheckName,
-		AdmitterChangeRequestType: AdmitterChangeRequestRemove,
+	s.admitterCommands <- AdmitterCMDRemove{
+		AdmissionCheckName: admissionCheckName,
 	}
 }
 
