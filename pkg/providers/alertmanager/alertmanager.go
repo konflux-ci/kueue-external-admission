@@ -148,6 +148,7 @@ func (a *admitter) shouldAdmit(ctx context.Context) (result.AdmissionResult, err
 	// If no alert filters are specified, admit by default
 	if len(a.alertFilters) == 0 {
 		a.logger.Info("No alert filters configured, admitting by default")
+		builder.SetAdmissionAllowed()
 		return builder.Build(), nil
 	}
 
@@ -157,6 +158,8 @@ func (a *admitter) shouldAdmit(ctx context.Context) (result.AdmissionResult, err
 		alertNames := a.getAlertNames(firingAlerts)
 		builder.AddDetails(alertNames...)
 		builder.SetAdmissionDenied()
+	} else {
+		builder.SetAdmissionAllowed()
 	}
 
 	result := builder.Build()
@@ -187,7 +190,6 @@ func (a *admitter) findFiringAlerts(alerts []*models.GettableAlert) []*models.Ge
 	var firingAlerts []*models.GettableAlert
 
 	for _, alertPtr := range alerts {
-		a.logger.Info("Alert", "alert", alertPtr)
 		if alertPtr == nil || alertPtr.Status == nil {
 			continue
 		}
