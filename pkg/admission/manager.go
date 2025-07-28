@@ -131,7 +131,6 @@ func (s *AdmissionManager) readAsyncAdmissionResults(
 			changed := adr.AdmissionResult.ShouldAdmit() != lastResult
 			// Update the last result
 			admitterEntry.LastResult = adr
-
 			if adr.Error != nil && changed {
 				s.logger.Info(
 					"Admission result for %s changed from %v to %v. emitting event",
@@ -150,12 +149,16 @@ func (s *AdmissionManager) AdmissionResultChanged() <-chan result.AdmissionResul
 	return s.admissionResultChanged
 }
 
-func (s *AdmissionManager) loadAdmitterEntry(admissionCheckName string) (AdmitterEntry, bool) {
+func (s *AdmissionManager) loadAdmitterEntry(admissionCheckName string) (*AdmitterEntry, bool) {
 	entry, ok := s.admitters.Load(admissionCheckName)
 	if !ok {
-		return AdmitterEntry{}, false
+		return nil, false
 	}
-	return entry.(AdmitterEntry), true
+	return entry.(*AdmitterEntry), true
+}
+
+func (s *AdmissionManager) storeAdmitterEntry(admissionCheckName string, entry *AdmitterEntry) {
+	s.admitters.Store(admissionCheckName, entry)
 }
 
 func (s *AdmissionManager) manageAdmitters(ctx context.Context, changeRequests chan AdmitterChangeRequest) {
@@ -186,9 +189,9 @@ func (s *AdmissionManager) manageAdmitters(ctx context.Context, changeRequests c
 		}
 
 		ctx, cancel := context.WithCancel(ctx)
-		s.admitters.Store(
+		s.storeAdmitterEntry(
 			admissionCheckName,
-			AdmitterEntry{
+			&AdmitterEntry{
 				Admitter: admitter,
 				Cancel:   cancel,
 			},
@@ -232,12 +235,12 @@ func (s *AdmissionManager) manageAdmitters(ctx context.Context, changeRequests c
 }
 
 // getAdmitter gets the Admitter for a given AdmissionCheck
-func (s *AdmissionManager) getAdmitterEntry(admissionCheckName string) (AdmitterEntry, bool) {
+func (s *AdmissionManager) getAdmitterEntry(admissionCheckName string) (*AdmitterEntry, bool) {
 	value, exists := s.admitters.Load(admissionCheckName)
 	if !exists {
-		return AdmitterEntry{}, false
+		return nil, false
 	}
-	return value.(AdmitterEntry), true
+	return value.(*AdmitterEntry), true
 }
 
 // ShouldAdmitWorkload aggregates admission decisions from multiple admitters
