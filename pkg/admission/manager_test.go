@@ -142,7 +142,7 @@ func TestAdmissionService_InterfaceFlexibility(t *testing.T) {
 	time.Sleep(500 * time.Millisecond)
 
 	// Retrieve as interface
-	results, exists := <-service.publishResults
+	results, exists := <-service.resultSnapshot
 	Expect(exists).To(BeTrue(), "Expected to find admitter")
 	Expect(results).ToNot(BeNil(), "Expected non-nil retrieved admitter")
 
@@ -182,8 +182,8 @@ func TestAdmissionService_RetrieveMultipleAdmitters(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 
 	// Retrieve both
-	results1, exists1 := <-service.publishResults
-	results2, exists2 := <-service.publishResults
+	results1, exists1 := <-service.resultSnapshot
+	results2, exists2 := <-service.resultSnapshot
 
 	Expect(exists1).To(BeTrue(), "Expected to find first admitter")
 	Expect(exists2).To(BeTrue(), "Expected to find second admitter")

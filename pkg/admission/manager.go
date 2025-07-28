@@ -51,12 +51,12 @@ type AdmitterEntry struct {
 
 // AdmissionManager manages Admitters for different AdmissionChecks
 type AdmissionManager struct {
-	logger                 logr.Logger
-	admitterChangeRequests chan AdmitterChangeRequest                  // Channel for admitter change requests
-	asyncAdmissionResults  chan result.AsyncAdmissionResult            // Channel for async admission results
-	admissionResultChanged chan result.AdmissionResult                 // Channel for admission result changes
-	admitterRemoved        chan string                                 // Channel for admitter removal
-	publishResults         chan map[string]result.AsyncAdmissionResult // Channel for results
+	logger               logr.Logger
+	admitterCommands     chan AdmitterChangeRequest                  // Commands to add/remove admitters
+	incomingResults      chan result.AsyncAdmissionResult            // Admission results from admitters
+	resultNotifications  chan result.AdmissionResult                 // Notifications about result changes
+	removalNotifications chan string                                 // Notifications about admitter removals
+	resultSnapshot       chan map[string]result.AsyncAdmissionResult // Snapshots of current results
 }
 
 // NewAdmissionService creates a new AdmissionService
@@ -64,24 +64,24 @@ type AdmissionManager struct {
 func NewAdmissionService(logger logr.Logger) *AdmissionManager {
 	return &AdmissionManager{
 		// sync.Map requires no initialization - zero value is ready to use
-		logger:                 logger,
-		asyncAdmissionResults:  make(chan result.AsyncAdmissionResult),
-		admitterChangeRequests: make(chan AdmitterChangeRequest),
-		admissionResultChanged: make(chan result.AdmissionResult, 100),
-		admitterRemoved:        make(chan string),
-		publishResults:         make(chan map[string]result.AsyncAdmissionResult),
+		logger:               logger,
+		incomingResults:      make(chan result.AsyncAdmissionResult),
+		admitterCommands:     make(chan AdmitterChangeRequest),
+		resultNotifications:  make(chan result.AdmissionResult, 100),
+		removalNotifications: make(chan string),
+		resultSnapshot:       make(chan map[string]result.AsyncAdmissionResult),
 	}
 }
 
 func (s *AdmissionManager) Start(ctx context.Context) error {
 	s.logger.Info("Starting AdmissionService")
-	go s.manageAdmitters(ctx, s.admitterChangeRequests)
+	go s.manageAdmitters(ctx, s.admitterCommands)
 	go s.readAsyncAdmissionResults(
 		ctx,
-		s.asyncAdmissionResults,
-		s.admissionResultChanged,
-		s.publishResults,
-		s.admitterRemoved,
+		s.incomingResults,
+		s.resultNotifications,
+		s.resultSnapshot,
+		s.removalNotifications,
 	)
 
 	<-ctx.Done()
@@ -90,7 +90,7 @@ func (s *AdmissionManager) Start(ctx context.Context) error {
 }
 
 func (s *AdmissionManager) SetAdmitter(admissionCheckName string, admitter Admitter) {
-	s.admitterChangeRequests <- AdmitterChangeRequest{
+	s.admitterCommands <- AdmitterChangeRequest{
 		AdmissionCheckName:        admissionCheckName,
 		AdmitterChangeRequestType: AdmitterChangeRequestAdd,
 		Admitter:                  admitter,
@@ -98,22 +98,22 @@ func (s *AdmissionManager) SetAdmitter(admissionCheckName string, admitter Admit
 }
 
 func (s *AdmissionManager) RemoveAdmitter(admissionCheckName string) {
-	s.admitterChangeRequests <- AdmitterChangeRequest{
+	s.admitterCommands <- AdmitterChangeRequest{
 		AdmissionCheckName:        admissionCheckName,
 		AdmitterChangeRequestType: AdmitterChangeRequestRemove,
 	}
 }
 
 func (s *AdmissionManager) AdmissionResultChanged() <-chan result.AdmissionResult {
-	return s.admissionResultChanged
+	return s.resultNotifications
 }
 
 func (s *AdmissionManager) readAsyncAdmissionResults(
 	ctx context.Context,
-	asyncAdmissionResults <-chan result.AsyncAdmissionResult,
-	admissionResultChangedChannel chan<- result.AdmissionResult,
-	publishResults chan<- map[string]result.AsyncAdmissionResult,
-	admitterRemoved <-chan string,
+	incomingResults <-chan result.AsyncAdmissionResult,
+	resultNotifications chan<- result.AdmissionResult,
+	resultSnapshot chan<- map[string]result.AsyncAdmissionResult,
+	removalNotifications <-chan string,
 ) {
 
 	resultsRegistry := make(map[string]result.AsyncAdmissionResult)
@@ -124,15 +124,23 @@ func (s *AdmissionManager) readAsyncAdmissionResults(
 		case <-ctx.Done():
 			s.logger.Info("Stopping readAsyncAdmissionResults, context done")
 			return
-		case admissionCheckName := <-admitterRemoved:
-			s.logger.Info("REMOVING admitter from registry", "admissionCheck", admissionCheckName, "registrySize", len(resultsRegistry))
+		case admissionCheckName := <-removalNotifications:
+			s.logger.Info(
+				"REMOVING admitter from registry",
+				"admissionCheck", admissionCheckName,
+				"registrySize", len(resultsRegistry),
+			)
 			// Admitter was removed from the manager, remove its latest result from the cache
 			delete(resultsRegistry, admissionCheckName)
 			s.logger.Info("AFTER removal", "registrySize", len(resultsRegistry))
-		case publishResults <- maps.Clone(resultsRegistry):
+		case resultSnapshot <- maps.Clone(resultsRegistry):
 			s.logger.Info("PUBLISHING results", "registrySize", len(resultsRegistry), "results", resultsRegistry)
-		case newResult := <-asyncAdmissionResults:
-			s.logger.Info("RECEIVED new result", "admissionCheck", newResult.AdmissionResult.CheckName(), "registrySize", len(resultsRegistry))
+		case newResult := <-incomingResults:
+			s.logger.Info(
+				"RECEIVED new result",
+				"admissionCheck", newResult.AdmissionResult.CheckName(),
+				"registrySize", len(resultsRegistry),
+			)
 			admissionCheckName := newResult.AdmissionResult.CheckName()
 			s.logger.Info(
 				"Received async admission result",
@@ -158,7 +166,12 @@ func (s *AdmissionManager) readAsyncAdmissionResults(
 			}
 
 			changed := !reflect.DeepEqual(newResult, lastResult)
-			s.logger.Info("STORING result", "admissionCheck", admissionCheckName, "changed", changed, "beforeSize", len(resultsRegistry))
+			s.logger.Info(
+				"STORING result",
+				"admissionCheck", admissionCheckName,
+				"changed", changed,
+				"beforeSize", len(resultsRegistry),
+			)
 			resultsRegistry[admissionCheckName] = newResult
 
 			// Debug: Check what's actually in the stored result
@@ -180,7 +193,7 @@ func (s *AdmissionManager) readAsyncAdmissionResults(
 			if changed {
 				if newResult.Error == nil {
 					// Only send successful admission results to the channel
-					admissionResultChangedChannel <- newResult.AdmissionResult
+					resultNotifications <- newResult.AdmissionResult
 				} else {
 					s.logger.Info("Admission result changed but has error, not notifying",
 						"admissionCheck", admissionCheckName,
@@ -192,7 +205,7 @@ func (s *AdmissionManager) readAsyncAdmissionResults(
 	}
 }
 
-func (s *AdmissionManager) manageAdmitters(ctx context.Context, changeRequests chan AdmitterChangeRequest) {
+func (s *AdmissionManager) manageAdmitters(ctx context.Context, admitterCommands chan AdmitterChangeRequest) {
 
 	admitters := make(map[string]*AdmitterEntry)
 
@@ -227,12 +240,12 @@ func (s *AdmissionManager) manageAdmitters(ctx context.Context, changeRequests c
 			Admitter:           admitter,
 			Cancel:             cancel,
 		}
-		if err := admitter.Sync(ctx, s.asyncAdmissionResults); err != nil {
+		if err := admitter.Sync(ctx, s.incomingResults); err != nil {
 			retryIn := 15 * time.Second
 			s.logger.Error(err, "Failed to sync admitter", "admissionCheck", admissionCheckName, "retryIn", retryIn)
 			go func() {
 				time.Sleep(retryIn)
-				changeRequests <- AdmitterChangeRequest{
+				admitterCommands <- AdmitterChangeRequest{
 					AdmissionCheckName:        admissionCheckName,
 					AdmitterChangeRequestType: AdmitterChangeRequestAdd,
 					Admitter:                  admitter,
@@ -253,7 +266,7 @@ func (s *AdmissionManager) manageAdmitters(ctx context.Context, changeRequests c
 				removeAdmitter(admissionCheckName)
 			}
 			return
-		case changeRequest := <-changeRequests:
+		case changeRequest := <-admitterCommands:
 			// TODO: generate and id for the admitter
 			switch changeRequest.AdmitterChangeRequestType {
 			case AdmitterChangeRequestAdd:
@@ -261,8 +274,8 @@ func (s *AdmissionManager) manageAdmitters(ctx context.Context, changeRequests c
 			case AdmitterChangeRequestRemove:
 				removeAdmitter(changeRequest.AdmissionCheckName)
 				// TODO: there might be a race condition here, if the admitter is removed and the result is published
-				// need to concider a periodic cleanup of the results registry
-				s.admitterRemoved <- changeRequest.AdmissionCheckName
+				// need to consider a periodic cleanup of the results registry
+				s.removalNotifications <- changeRequest.AdmissionCheckName
 			}
 		}
 	}
@@ -271,7 +284,7 @@ func (s *AdmissionManager) manageAdmitters(ctx context.Context, changeRequests c
 func (s *AdmissionManager) ShouldAdmitWorkload(
 	ctx context.Context, checkNames []string,
 ) (result.AggregatedAdmissionResult, error) {
-	return s.shouldAdmitWorkload(ctx, checkNames, s.publishResults)
+	return s.shouldAdmitWorkload(ctx, checkNames, s.resultSnapshot)
 }
 
 // ShouldAdmitWorkload aggregates admission decisions from multiple admitters
@@ -279,7 +292,7 @@ func (s *AdmissionManager) ShouldAdmitWorkload(
 func (s *AdmissionManager) shouldAdmitWorkload(
 	ctx context.Context,
 	checkNames []string,
-	publishResults <-chan map[string]result.AsyncAdmissionResult,
+	resultSnapshot <-chan map[string]result.AsyncAdmissionResult,
 ) (result.AggregatedAdmissionResult, error) {
 	s.logger.Info("Checking admission for workload", "checks", checkNames)
 
@@ -292,7 +305,7 @@ func (s *AdmissionManager) shouldAdmitWorkload(
 	case <-ctx.Done():
 		s.logger.Info("Stopping shouldAdmitWorkload, context done")
 		return nil, ctx.Err()
-	case resultsRegistry = <-publishResults:
+	case resultsRegistry = <-resultSnapshot:
 		s.logger.Info("Received results from channel", "results", resultsRegistry, "count", len(resultsRegistry))
 
 		// Debug: Check each result in detail
