@@ -5,20 +5,12 @@ import (
 	"fmt"
 	"maps"
 	"reflect"
+	"slices"
 	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/konflux-ci/kueue-external-admission/pkg/admission/result"
 )
-
-// Helper function for debugging
-func getMapKeys(m map[string]result.AsyncAdmissionResult) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	return keys
-}
 
 // Admitter determines whether admission should be allowed
 type Admitter interface {
@@ -188,7 +180,11 @@ func (s *AdmissionManager) readAsyncAdmissionResults(
 				s.logger.Info("STORED result has NIL AdmissionResult!", "admissionCheck", admissionCheckName)
 			}
 
-			s.logger.Info("AFTER storing", "registrySize", len(resultsRegistry), "keys", getMapKeys(resultsRegistry))
+			s.logger.Info(
+				"AFTER storing",
+				"registrySize", len(resultsRegistry),
+				"keys", slices.Collect(maps.Keys(resultsRegistry)),
+			)
 
 			if changed {
 				if newResult.Error == nil {
@@ -204,6 +200,8 @@ func (s *AdmissionManager) readAsyncAdmissionResults(
 		}
 	}
 }
+
+
 
 func (s *AdmissionManager) manageAdmitters(ctx context.Context, admitterCommands chan AdmitterChangeRequest) {
 
