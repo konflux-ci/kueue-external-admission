@@ -6,7 +6,6 @@ import (
 	"maps"
 	"reflect"
 	"slices"
-	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/konflux-ci/kueue-external-admission/pkg/admission"
@@ -26,12 +25,6 @@ type AdmitterChangeRequest struct {
 	AdmitterChangeRequestType
 	// TODO: consider moving the factory to the admission service
 	Admitter admission.Admitter
-}
-
-type AdmitterEntry struct {
-	Admitter           admission.Admitter
-	AdmissionCheckName string
-	Cancel             context.CancelFunc
 }
 
 // AdmissionManager manages Admitters for different AdmissionChecks
@@ -60,7 +53,8 @@ func NewManager(logger logr.Logger) *AdmissionManager {
 
 func (s *AdmissionManager) Start(ctx context.Context) error {
 	s.logger.Info("Starting AdmissionService")
-	go s.manageAdmitters(ctx, s.admitterCommands)
+	admitterManager := NewAdmitterManager(s.logger)
+	go admitterManager.Run(ctx, s.admitterCommands, s.incomingResults, s.removalNotifications)
 	go s.readAsyncAdmissionResults(
 		ctx,
 		s.incomingResults,
@@ -190,82 +184,6 @@ func (s *AdmissionManager) readAsyncAdmissionResults(
 				}
 			}
 			admissionMetrics.RecordAdmissionCheckStatus(newResult.AdmissionResult.ShouldAdmit())
-		}
-	}
-}
-
-func (s *AdmissionManager) manageAdmitters(ctx context.Context, admitterCommands chan AdmitterChangeRequest) {
-
-	admitters := make(map[string]*AdmitterEntry)
-
-	removeAdmitter := func(admissionCheckName string) {
-		entry, ok := admitters[admissionCheckName]
-		if !ok {
-			s.logger.Error(fmt.Errorf("admitter not found"), "Admitter not found", "admissionCheck", admissionCheckName)
-			return
-		}
-		entry.Cancel()
-		delete(admitters, admissionCheckName)
-		admissionMetrics := monitoring.NewAdmissionMetrics(admissionCheckName)
-		admissionMetrics.DeleteAdmissionCheckStatus()
-		s.logger.Info("Removed admitter for AdmissionCheck", "admissionCheck", admissionCheckName)
-	}
-
-	setAdmitter := func(ctx context.Context, admissionCheckName string, admitter admission.Admitter) {
-		// need to handle a case where the admitter is already set
-		entry, ok := admitters[admissionCheckName]
-		if ok && reflect.DeepEqual(entry.Admitter, admitter) {
-			s.logger.Info("Admitter already set, skipping", "admissionCheck", admissionCheckName)
-			return
-		} else if ok {
-			s.logger.Info("Replacing existing admitter for AdmissionCheck", "admissionCheck", admissionCheckName)
-			removeAdmitter(admissionCheckName)
-			s.logger.Info("Removed old admitter for AdmissionCheck", "admissionCheck", admissionCheckName)
-		}
-
-		ctx, cancel := context.WithCancel(ctx)
-		admitters[admissionCheckName] = &AdmitterEntry{
-			AdmissionCheckName: admissionCheckName,
-			Admitter:           admitter,
-			Cancel:             cancel,
-		}
-		if err := admitter.Sync(ctx, s.incomingResults); err != nil {
-			retryIn := 15 * time.Second
-			s.logger.Error(err, "Failed to sync admitter", "admissionCheck", admissionCheckName, "retryIn", retryIn)
-			go func() {
-				time.Sleep(retryIn)
-				admitterCommands <- AdmitterChangeRequest{
-					AdmissionCheckName:        admissionCheckName,
-					AdmitterChangeRequestType: AdmitterChangeRequestAdd,
-					Admitter:                  admitter,
-				}
-			}()
-		}
-		admissionMetrics := monitoring.NewAdmissionMetrics(admissionCheckName)
-		// Set initial status to true just to make sure that the metric is set
-		admissionMetrics.RecordAdmissionCheckStatus(true)
-		s.logger.Info("Added admitter for AdmissionCheck", "admissionCheck", admissionCheckName)
-	}
-
-	for {
-		select {
-		case <-ctx.Done():
-			s.logger.Info("Stopping ManageAdmitters, context done")
-			for admissionCheckName := range admitters {
-				removeAdmitter(admissionCheckName)
-			}
-			return
-		case changeRequest := <-admitterCommands:
-			// TODO: generate and id for the admitter
-			switch changeRequest.AdmitterChangeRequestType {
-			case AdmitterChangeRequestAdd:
-				setAdmitter(ctx, changeRequest.AdmissionCheckName, changeRequest.Admitter)
-			case AdmitterChangeRequestRemove:
-				removeAdmitter(changeRequest.AdmissionCheckName)
-				// TODO: there might be a race condition here, if the admitter is removed and the result is published
-				// need to consider a periodic cleanup of the results registry
-				s.removalNotifications <- changeRequest.AdmissionCheckName
-			}
 		}
 	}
 }
