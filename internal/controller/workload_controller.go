@@ -89,6 +89,7 @@ func (w *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	log.Info("Reconcile", "Workload", wl.Name)
 
+	// TODO: check what other AC controllers do when the workload has no quota reservation
 	if !workload.HasQuotaReservation(wl) {
 		log.Info("Workload has no quota reservation, skipping", "workload", wl.Name)
 		return reconcile.Result{}, nil

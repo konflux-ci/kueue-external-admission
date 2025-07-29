@@ -96,6 +96,7 @@ func (s *AdmissionManager) shouldAdmitWorkload(
 	builder := result.NewAggregatedAdmissionResultBuilder()
 	builder.SetAdmissionAllowed()
 
+	// TODO: Add a test for this
 	if time.Since(s.startTime) < 30*time.Second {
 		builder.SetAdmissionDenied()
 		builder.AddProviderDetails("startup check", []string{"Admission checks not loaded yet, rejecting workload"})

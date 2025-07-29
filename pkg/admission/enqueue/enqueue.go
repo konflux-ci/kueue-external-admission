@@ -71,6 +71,8 @@ func (m *Enqueuer) enqueuerLoop(ctx context.Context) {
 			m.logger.Info("enqueuer: Admission result changed", "admissionResult", admissionResult)
 			m.checkAndEnqueueEvents(ctx, admissionResult)
 		}
+		// TODO: periodically enqueue all workloads that didn't start,
+		// has quota reservation and is not admitted yet and that have admission checks configured relevant to us
 	}
 }
 
@@ -127,7 +129,7 @@ func (m *Enqueuer) checkAndEnqueueEvents(ctx context.Context, admissionResult re
 		select {
 		case m.eventCh <- event.GenericEvent{Object: wl}:
 			m.logger.Info("Enqueuing event for workload", "workload", wl.Name)
-		default:
+		case <-time.After(15 * time.Second):
 			m.logger.Info("Events channel full, skipping enqueue", "workload", wl.Name)
 		}
 	}
