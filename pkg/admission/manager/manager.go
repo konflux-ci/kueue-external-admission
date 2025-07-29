@@ -14,7 +14,7 @@ import (
 // AdmissionManager manages Admitters for different AdmissionChecks
 type AdmissionManager struct {
 	logger              logr.Logger
-	createTime          time.Time
+	startTime           time.Time
 	admitterCommands    chan admitterCmdFunc             // Commands to add/remove admitters
 	incomingResults     chan result.AsyncAdmissionResult // Admission results from admitters
 	resultNotifications chan result.AdmissionResult      // Notifications about result changes
@@ -24,8 +24,7 @@ type AdmissionManager struct {
 // NewManager creates a new AdmissionService
 func NewManager(logger logr.Logger) *AdmissionManager {
 	return &AdmissionManager{
-		logger:              logger,
-		createTime:          time.Now(),
+		logger:              logger.WithName("manager"),
 		incomingResults:     make(chan result.AsyncAdmissionResult),
 		admitterCommands:    make(chan admitterCmdFunc),
 		resultNotifications: make(chan result.AdmissionResult, 100),
@@ -35,12 +34,17 @@ func NewManager(logger logr.Logger) *AdmissionManager {
 
 func (s *AdmissionManager) Start(ctx context.Context) error {
 	s.logger.Info("Starting AdmissionService")
+	s.startTime = time.Now()
 
-	admitterManager := NewAdmitterManager(s.logger, s.admitterCommands, s.incomingResults)
+	admitterManager := NewAdmitterManager(
+		s.logger.WithName("admitter-manager"),
+		s.admitterCommands,
+		s.incomingResults,
+	)
 	go admitterManager.Run(ctx)
 
 	resultManager := NewResultManager(
-		s.logger,
+		s.logger.WithName("result-manager"),
 		s.admitterCommands,
 		s.incomingResults,
 		s.resultNotifications,
@@ -92,7 +96,7 @@ func (s *AdmissionManager) shouldAdmitWorkload(
 	builder := result.NewAggregatedAdmissionResultBuilder()
 	builder.SetAdmissionAllowed()
 
-	if time.Since(s.createTime) < 15*time.Second {
+	if time.Since(s.startTime) < 30*time.Second {
 		builder.SetAdmissionDenied()
 		builder.AddProviderDetails("startup check", []string{"Admission checks not loaded yet, rejecting workload"})
 		s.logger.Info("Admission checks not loaded yet, rejecting workload")
