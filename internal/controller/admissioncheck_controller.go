@@ -175,7 +175,7 @@ func (r *AdmissionCheckReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 // SetupIndexer sets up an indexer for AdmissionChecks that reference an ExternalAdmissionConfig
 func SetupIndexer(ctx context.Context, fieldIndexer client.FieldIndexer) error {
-	err := fieldIndexer.IndexField(
+	if err := fieldIndexer.IndexField(
 		ctx,
 		&kueue.AdmissionCheck{},
 		admissionCheckConfigNameKey,
@@ -183,20 +183,19 @@ func SetupIndexer(ctx context.Context, fieldIndexer client.FieldIndexer) error {
 			constant.ControllerName,
 			konfluxciv1alpha1.GroupVersion.WithKind("ExternalAdmissionConfig"),
 		),
-	)
-	if err != nil {
+	); err != nil {
 		return err
 	}
 
-	err = fieldIndexer.IndexField(
+	if err := fieldIndexer.IndexField(
 		ctx,
 		&kueue.Workload{},
 		constant.WorkloadsWithAdmissionCheckKey,
 		indexWorkloadsChecks,
-	)
-	if err != nil {
+	); err != nil {
 		return err
 	}
+
 	return nil
 }
 
