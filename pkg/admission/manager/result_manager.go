@@ -30,7 +30,7 @@ func (m *ResultManager) Run(
 	incomingResults <-chan result.AsyncAdmissionResult,
 	resultNotifications chan<- result.AdmissionResult,
 	resultSnapshot chan<- map[string]result.AsyncAdmissionResult,
-	admitterCommands chan<- AdmitterCMD,
+	admitterCommands chan<- admitterCmdFunc,
 ) {
 	resultsRegistry := m.resultsRegistry
 	ticker := time.NewTicker(1 * time.Minute)
@@ -127,22 +127,20 @@ func (m *ResultManager) Run(
 	}
 }
 
-func (m *ResultManager) removeStaleResults(admitterCommands chan<- AdmitterCMD) {
+func (m *ResultManager) removeStaleResults(admitterCommands chan<- admitterCmdFunc) {
 	m.logger.Info(
 		"REMOVING stale results",
 		"registrySize", len(m.resultsRegistry),
 	)
 
-	cmd := AdmitterCMDList{
-		Result: make(chan map[string]bool),
-	}
+	resultChan := make(chan map[string]bool)
+	admitterCommands <- ListAdmitters(resultChan)
 
-	admitterCommands <- cmd
 	select {
 	case <-time.After(10 * time.Second):
 		m.logger.Error(fmt.Errorf("timeout waiting for admitters"), "Timeout waiting for admitters")
 		return
-	case admitters := <-cmd.Result:
+	case admitters := <-resultChan:
 		maps.DeleteFunc(m.resultsRegistry, func(key string, _ result.AsyncAdmissionResult) bool {
 			_, ok := admitters[key]
 			return !ok

@@ -13,7 +13,7 @@ import (
 // AdmissionManager manages Admitters for different AdmissionChecks
 type AdmissionManager struct {
 	logger              logr.Logger
-	admitterCommands    chan AdmitterCMD                            // Commands to add/remove admitters
+	admitterCommands    chan admitterCmdFunc                        // Commands to add/remove admitters
 	incomingResults     chan result.AsyncAdmissionResult            // Admission results from admitters
 	resultNotifications chan result.AdmissionResult                 // Notifications about result changes
 	resultSnapshot      chan map[string]result.AsyncAdmissionResult // Snapshots of current results
@@ -24,7 +24,7 @@ func NewManager(logger logr.Logger) *AdmissionManager {
 	return &AdmissionManager{
 		logger:              logger,
 		incomingResults:     make(chan result.AsyncAdmissionResult),
-		admitterCommands:    make(chan AdmitterCMD),
+		admitterCommands:    make(chan admitterCmdFunc),
 		resultNotifications: make(chan result.AdmissionResult, 100),
 		resultSnapshot:      make(chan map[string]result.AsyncAdmissionResult),
 	}
@@ -33,8 +33,8 @@ func NewManager(logger logr.Logger) *AdmissionManager {
 func (s *AdmissionManager) Start(ctx context.Context) error {
 	s.logger.Info("Starting AdmissionService")
 
-	admitterManager := NewAdmitterManager(s.logger)
-	go admitterManager.Run(ctx, s.admitterCommands, s.incomingResults)
+	admitterManager := NewAdmitterManager(s.logger, s.admitterCommands, s.incomingResults)
+	go admitterManager.Run(ctx)
 
 	resultManager := NewResultManager(s.logger)
 	go resultManager.Run(
@@ -51,16 +51,11 @@ func (s *AdmissionManager) Start(ctx context.Context) error {
 }
 
 func (s *AdmissionManager) SetAdmitter(admissionCheckName string, admitter admission.Admitter) {
-	s.admitterCommands <- AdmitterCMDAdd{
-		AdmissionCheckName: admissionCheckName,
-		Admitter:           admitter,
-	}
+	s.admitterCommands <- SetAdmitter(admissionCheckName, admitter)
 }
 
 func (s *AdmissionManager) RemoveAdmitter(admissionCheckName string) {
-	s.admitterCommands <- AdmitterCMDRemove{
-		AdmissionCheckName: admissionCheckName,
-	}
+	s.admitterCommands <- RemoveAdmitter(admissionCheckName)
 }
 
 func (s *AdmissionManager) AdmissionResultChanged() <-chan result.AdmissionResult {
