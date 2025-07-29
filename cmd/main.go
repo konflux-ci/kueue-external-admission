@@ -329,7 +329,6 @@ func main() {
 	// Create enqueuer to watch for admission result changes
 	enqueuer := enqueue.NewEnqueuer(
 		admissionManager,
-		controller.NewWorkloadLister(mgr.GetClient()),
 		eventCh,
 		mgr.GetClient(),
 		30*time.Second, // Check every 30 seconds

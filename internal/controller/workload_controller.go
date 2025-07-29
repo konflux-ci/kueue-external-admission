@@ -19,16 +19,12 @@ package controller
 import (
 	"context"
 	"fmt"
-	"slices"
 	"strings"
 	"time"
 
 	"github.com/konflux-ci/kueue-external-admission/pkg/admission"
-	"github.com/konflux-ci/kueue-external-admission/pkg/admission/enqueue"
-	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/clock"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -195,49 +191,4 @@ func (w *WorkloadReconciler) SetupWithManager(mgr ctrl.Manager, eventsChan <-cha
 		).
 		Named("workload").
 		Complete(w)
-}
-
-type WorkloadLister struct {
-	client client.Client
-}
-
-var _ enqueue.Lister = &WorkloadLister{}
-
-func NewWorkloadLister(client client.Client) *WorkloadLister {
-	return &WorkloadLister{client: client}
-}
-
-// List implements watcher.Lister.
-// Subtle: this method shadows the method (Client).List of WorkloadLister.Client.
-func (w *WorkloadLister) List(ctx context.Context) ([]client.Object, error) {
-	ww := &kueue.WorkloadList{}
-	if err := w.client.List(ctx, ww, &client.ListOptions{
-		// For performance reasons we'll deepcopy after filtering the list
-		// IMPORTANT: DO NOT make any change to the listed workspaces
-		UnsafeDisableDeepCopy: ptr.To(true),
-	}); err != nil {
-		return nil, err
-	}
-
-	// let's prepare for the worst case, we'll clip the slice before returning it
-	workloads := make([]client.Object, 0, len(ww.Items))
-	// build the filtered list of workspaces
-	for _, iw := range ww.Items {
-		if w.isWorkloadAdmittedAndNotFinished(&iw) {
-			// IMPORTANT: as we didn't DeepCopy before, we NEED to DeepCopy now
-			workloads = append(workloads, iw.DeepCopy())
-		}
-	}
-
-	// reduce the capacity of the list before returning it
-	return slices.Clip(workloads), nil
-}
-
-// isWorkloadAdmittedAndNotFinished returns true if the workload requires admission checks
-// and hasn't still finished.
-func (w *WorkloadLister) isWorkloadAdmittedAndNotFinished(workload *kueue.Workload) bool {
-	requiresAdmissionCheck := len(workload.Status.AdmissionChecks) > 0
-	finished := meta.IsStatusConditionTrue(workload.Status.Conditions, kueue.WorkloadFinished)
-
-	return requiresAdmissionCheck && !finished
 }

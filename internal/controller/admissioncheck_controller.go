@@ -38,9 +38,13 @@ import (
 	"github.com/konflux-ci/kueue-external-admission/pkg/admission/manager"
 	"github.com/konflux-ci/kueue-external-admission/pkg/constant"
 	acutil "sigs.k8s.io/kueue/pkg/util/admissioncheck"
+	"sigs.k8s.io/kueue/pkg/util/slices"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-const admissionCheckConfigNameKey = "spec.parameters.name"
+const (
+	admissionCheckConfigNameKey = "spec.parameters.name"
+)
 
 // NewAdmissionCheckReconciler creates a new AdmissionCheckReconciler
 func NewAdmissionCheckReconciler(client client.Client, scheme *runtime.Scheme, admissionService *manager.AdmissionManager) (*AdmissionCheckReconciler, error) {
@@ -171,7 +175,7 @@ func (r *AdmissionCheckReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 // SetupIndexer sets up an indexer for AdmissionChecks that reference an ExternalAdmissionConfig
 func SetupIndexer(ctx context.Context, fieldIndexer client.FieldIndexer) error {
-	return fieldIndexer.IndexField(
+	err := fieldIndexer.IndexField(
 		ctx,
 		&kueue.AdmissionCheck{},
 		admissionCheckConfigNameKey,
@@ -180,6 +184,31 @@ func SetupIndexer(ctx context.Context, fieldIndexer client.FieldIndexer) error {
 			konfluxciv1alpha1.GroupVersion.WithKind("ExternalAdmissionConfig"),
 		),
 	)
+	if err != nil {
+		return err
+	}
+
+	err = fieldIndexer.IndexField(
+		ctx,
+		&kueue.Workload{},
+		constant.WorkloadsWithAdmissionCheckKey,
+		indexWorkloadsChecks,
+	)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func indexWorkloadsChecks(obj client.Object) []string {
+	wl, isWl := obj.(*kueue.Workload)
+	if !isWl || len(wl.Status.AdmissionChecks) == 0 {
+		return nil
+	}
+	if !workload.HasQuotaReservation(wl) || workload.IsFinished(wl) || workload.IsEvicted(wl) || workload.IsAdmitted(wl) {
+		return nil
+	}
+	return slices.Map(wl.Status.AdmissionChecks, func(c *kueue.AdmissionCheckState) string { return c.Name })
 }
 
 // findAdmissionChecksForConfig finds AdmissionChecks that should be reconciled
