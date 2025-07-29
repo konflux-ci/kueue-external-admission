@@ -46,7 +46,7 @@ func init() {
 			if config.Spec.Provider.AlertManager == nil {
 				return nil, fmt.Errorf("AlertManager provider config is nil")
 			}
-			return NewAdmitter(config.Spec.Provider.AlertManager, logger, admissionCheckName)
+			return NewAdmitter(config.Spec.Provider.AlertManager, logger.WithName(admissionCheckName), admissionCheckName)
 		})
 }
 

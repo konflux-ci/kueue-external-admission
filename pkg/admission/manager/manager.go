@@ -13,10 +13,10 @@ import (
 // AdmissionManager manages Admitters for different AdmissionChecks
 type AdmissionManager struct {
 	logger              logr.Logger
-	admitterCommands    chan admitterCmdFunc                        // Commands to add/remove admitters
-	incomingResults     chan result.AsyncAdmissionResult            // Admission results from admitters
-	resultNotifications chan result.AdmissionResult                 // Notifications about result changes
-	resultSnapshot      chan map[string]result.AsyncAdmissionResult // Snapshots of current results
+	admitterCommands    chan admitterCmdFunc             // Commands to add/remove admitters
+	incomingResults     chan result.AsyncAdmissionResult // Admission results from admitters
+	resultNotifications chan result.AdmissionResult      // Notifications about result changes
+	resultCmd           chan resultCmdFunc               // result commands
 }
 
 // NewManager creates a new AdmissionService
@@ -26,7 +26,7 @@ func NewManager(logger logr.Logger) *AdmissionManager {
 		incomingResults:     make(chan result.AsyncAdmissionResult),
 		admitterCommands:    make(chan admitterCmdFunc),
 		resultNotifications: make(chan result.AdmissionResult, 100),
-		resultSnapshot:      make(chan map[string]result.AsyncAdmissionResult),
+		resultCmd:           make(chan resultCmdFunc),
 	}
 }
 
@@ -41,7 +41,7 @@ func (s *AdmissionManager) Start(ctx context.Context) error {
 		s.admitterCommands,
 		s.incomingResults,
 		s.resultNotifications,
-		s.resultSnapshot,
+		s.resultCmd,
 	)
 	go resultManager.Run(ctx)
 
@@ -65,12 +65,14 @@ func (s *AdmissionManager) AdmissionResultChanged() <-chan result.AdmissionResul
 func (s *AdmissionManager) ShouldAdmitWorkload(
 	ctx context.Context, checkNames []string,
 ) (result.AggregatedAdmissionResult, error) {
+	cmd, resultChan := GetSnapshot()
+	s.resultCmd <- cmd
 
 	select {
 	case <-ctx.Done():
 		s.logger.Info("Stopping shouldAdmitWorkload, context done")
 		return nil, ctx.Err()
-	case snapshot := <-s.resultSnapshot:
+	case snapshot := <-resultChan:
 		s.logger.Info("Received results from channel", "results", snapshot, "count", len(snapshot))
 		return s.shouldAdmitWorkload(checkNames, snapshot)
 	}

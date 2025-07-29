@@ -79,7 +79,7 @@ func NewWorkloadController(
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.20.0/pkg/reconcile
 func (w *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	log := ctrl.LoggerFrom(ctx)
+	log := ctrl.LoggerFrom(ctx).WithName("workload-controller")
 	wl := &kueue.Workload{}
 
 	err := w.client.Get(ctx, req.NamespacedName, wl)
@@ -127,6 +127,12 @@ func (w *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	// admitters for the specific admission checks configured
 	// for this workload's ClusterQueue
 	admissionResult, err := w.admitter.ShouldAdmitWorkload(ctx, admissionCheckNames)
+	log.Info(
+		"Admission result for workload",
+		"workload", wl.Name,
+		"shouldAdmit", admissionResult.ShouldAdmit(),
+		"providerDetails", admissionResult.GetProviderDetails(),
+	)
 	if err != nil {
 		log.Error(err, "Error checking admission for workload", "workload", wl.Name)
 		return reconcile.Result{}, err

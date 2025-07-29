@@ -294,12 +294,11 @@ func main() {
 		setupLog.Error(err, "unable to start manager")
 		os.Exit(1)
 	}
-
-	// Initialize the admission service
-	admissionService := admissionmanager.NewManager(setupLog.WithName("admission-service"))
-	// Add admission service to manager so it starts/stops with the manager
-	if err = mgr.Add(admissionService); err != nil {
-		setupLog.Error(err, "unable to add admission service to manager")
+	// Initialize the admission manager
+	admissionManager := admissionmanager.NewManager(ctrl.Log.WithName("admission-manager"))
+	// Add admission manager to manager so it starts/stops with the manager
+	if err = mgr.Add(admissionManager); err != nil {
+		setupLog.Error(err, "unable to add admission manager to manager")
 		os.Exit(1)
 	}
 
@@ -314,7 +313,7 @@ func main() {
 
 	// Setup AdmissionCheck reconciler
 	admissionCheckReconciler, err := controller.NewAdmissionCheckReconciler(
-		mgr.GetClient(), mgr.GetScheme(), admissionService)
+		mgr.GetClient(), mgr.GetScheme(), admissionManager)
 	if err != nil {
 		setupLog.Error(err, "unable to create AdmissionCheck controller")
 		os.Exit(1)
@@ -329,12 +328,12 @@ func main() {
 
 	// Create enqueuer to watch for admission result changes
 	enqueuer := enqueue.NewEnqueuer(
-		admissionService,
+		admissionManager,
 		controller.NewWorkloadLister(mgr.GetClient()),
 		eventCh,
 		mgr.GetClient(),
 		30*time.Second, // Check every 30 seconds
-		setupLog.WithName("enqueuer"),
+		ctrl.Log.WithName("enqueuer"),
 	)
 
 	// Add alert enqueuer to manager so it starts/stops with the manager
@@ -347,7 +346,7 @@ func main() {
 	workloadController := controller.NewWorkloadController(
 		mgr.GetClient(),
 		mgr.GetScheme(),
-		admissionService,
+		admissionManager,
 		clock.RealClock{},
 	)
 	if err = workloadController.SetupWithManager(mgr, eventCh); err != nil {

@@ -58,6 +58,8 @@ func (m *AdmitterManager) Run(ctx context.Context) {
 func SetAdmitter(admissionCheckName string, admitter admission.Admitter) admitterCmdFunc {
 	return func(m *AdmitterManager, ctx context.Context) {
 		entry, ok := m.admitters[admissionCheckName]
+		// TODO: check if this is a valid check
+		// looks like that the admitter always changes
 		if ok && reflect.DeepEqual(entry.Admitter, admitter) {
 			m.logger.Info("Admitter already set, skipping", "admissionCheck", admissionCheckName)
 			return

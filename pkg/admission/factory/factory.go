@@ -52,7 +52,7 @@ func NewAdmitter(
 	switch {
 	case provider.AlertManager != nil:
 		if factory, exists := providerFactories["alertmanager"]; exists {
-			return factory(config, logger, admissionCheckName)
+			return factory(config, logger.WithName("provider.alertmanager"), admissionCheckName)
 		}
 		return nil, fmt.Errorf("alertmanager provider factory not registered")
 	default:

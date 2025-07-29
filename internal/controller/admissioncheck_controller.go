@@ -74,7 +74,7 @@ type AdmissionCheckReconciler struct {
 // Reconcile is part of the main reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
 func (r *AdmissionCheckReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	log := ctrl.LoggerFrom(ctx)
+	log := ctrl.LoggerFrom(ctx).WithName("admissioncheck-controller")
 	log.Info("Reconciling", "object", req.NamespacedName)
 
 	// Fetch the AdmissionCheck instance

@@ -17,22 +17,24 @@ type ResultManager struct {
 	resultsRegistry     map[string]result.AsyncAdmissionResult
 	incomingResults     <-chan result.AsyncAdmissionResult
 	resultNotifications chan<- result.AdmissionResult
-	resultSnapshot      chan<- map[string]result.AsyncAdmissionResult
+	resultCmd           <-chan resultCmdFunc
 	admitterCommands    chan<- admitterCmdFunc
 }
+
+type resultCmdFunc func(m *ResultManager, ctx context.Context)
 
 func NewResultManager(logger logr.Logger,
 	admitterCommands chan<- admitterCmdFunc,
 	incomingResults <-chan result.AsyncAdmissionResult,
 	resultNotifications chan<- result.AdmissionResult,
-	resultSnapshot chan<- map[string]result.AsyncAdmissionResult,
+	resultCmd <-chan resultCmdFunc,
 ) *ResultManager {
 	return &ResultManager{
 		logger:              logger,
 		resultsRegistry:     make(map[string]result.AsyncAdmissionResult),
 		incomingResults:     incomingResults,
 		resultNotifications: resultNotifications,
-		resultSnapshot:      resultSnapshot,
+		resultCmd:           resultCmd,
 		admitterCommands:    admitterCommands,
 	}
 }
@@ -50,8 +52,8 @@ func (m *ResultManager) Run(ctx context.Context) {
 		case <-ticker.C:
 			m.removeStaleResults(m.admitterCommands)
 		// Publish the current state of the results registry.
-		case m.resultSnapshot <- maps.Clone(m.resultsRegistry):
-			m.logger.Info("PUBLISHING results", "registrySize", len(m.resultsRegistry), "results", m.resultsRegistry)
+		case cmd := <-m.resultCmd:
+			cmd(m, ctx)
 		// Receive new results from the admitters.
 		case newResult := <-m.incomingResults:
 			m.handleNewResult(newResult)
@@ -109,7 +111,7 @@ func (m *ResultManager) removeStaleResults(admitterCommands chan<- admitterCmdFu
 		"REMOVING stale results",
 		"registrySize", len(m.resultsRegistry),
 	)
-
+	initialRegistrySize := len(m.resultsRegistry)
 	listAdmitters, resultChan := ListAdmitters()
 	admitterCommands <- listAdmitters
 
@@ -124,5 +126,13 @@ func (m *ResultManager) removeStaleResults(admitterCommands chan<- admitterCmdFu
 		})
 	}
 
-	m.logger.Info("AFTER removal", "registrySize", len(m.resultsRegistry))
+	m.logger.Info("AFTER removal", "registrySize", len(m.resultsRegistry), "initialRegistrySize", initialRegistrySize)
+}
+
+func GetSnapshot() (resultCmdFunc, <-chan map[string]result.AsyncAdmissionResult) {
+	resultChan := make(chan map[string]result.AsyncAdmissionResult, 1)
+	return func(m *ResultManager, ctx context.Context) {
+		defer close(resultChan)
+		resultChan <- maps.Clone(m.resultsRegistry)
+	}, resultChan
 }

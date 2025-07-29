@@ -142,8 +142,9 @@ func TestAdmissionService_InterfaceFlexibility(t *testing.T) {
 	time.Sleep(500 * time.Millisecond)
 
 	// Retrieve as interface
-	results, exists := <-service.resultSnapshot
-	Expect(exists).To(BeTrue(), "Expected to find admitter")
+	cmd, resultChan := GetSnapshot()
+	service.resultCmd <- cmd
+	results := <-resultChan
 	Expect(results).ToNot(BeNil(), "Expected non-nil retrieved admitter")
 
 	// Test the ShouldAdmitWorkload method through the interface
@@ -182,14 +183,9 @@ func TestAdmissionService_RetrieveMultipleAdmitters(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 
 	// Retrieve both
-	results1, exists1 := <-service.resultSnapshot
-	results2, exists2 := <-service.resultSnapshot
+	cmd, resultChan := GetSnapshot()
+	service.resultCmd <- cmd
+	results1 := <-resultChan
 
-	Expect(exists1).To(BeTrue(), "Expected to find first admitter")
-	Expect(exists2).To(BeTrue(), "Expected to find second admitter")
 	Expect(results1).ToNot(BeNil(), "Expected non-nil first admitter")
-	Expect(results2).ToNot(BeNil(), "Expected non-nil second admitter")
-
-	// Test that they are different instances
-	Expect(results1).ToNot(BeIdenticalTo(results2), "Expected different admitter instances")
 }
