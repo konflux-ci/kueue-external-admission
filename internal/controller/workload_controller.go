@@ -89,7 +89,12 @@ func (w *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	log.Info("Reconcile", "Workload", wl.Name)
 
-	if !workload.HasQuotaReservation(wl) || workload.IsFinished(wl) || workload.IsEvicted(wl) || workload.IsAdmitted(wl) {
+	if !workload.HasQuotaReservation(wl) {
+		log.Info("Workload has no quota reservation, skipping", "workload", wl.Name)
+		return reconcile.Result{}, nil
+	}
+
+	if workload.IsFinished(wl) || workload.IsEvicted(wl) || workload.IsAdmitted(wl) {
 		return reconcile.Result{}, nil
 	}
 

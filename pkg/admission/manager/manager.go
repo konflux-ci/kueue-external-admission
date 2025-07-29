@@ -3,6 +3,7 @@ package manager
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/konflux-ci/kueue-external-admission/pkg/admission"
@@ -13,6 +14,7 @@ import (
 // AdmissionManager manages Admitters for different AdmissionChecks
 type AdmissionManager struct {
 	logger              logr.Logger
+	createTime          time.Time
 	admitterCommands    chan admitterCmdFunc             // Commands to add/remove admitters
 	incomingResults     chan result.AsyncAdmissionResult // Admission results from admitters
 	resultNotifications chan result.AdmissionResult      // Notifications about result changes
@@ -23,6 +25,7 @@ type AdmissionManager struct {
 func NewManager(logger logr.Logger) *AdmissionManager {
 	return &AdmissionManager{
 		logger:              logger,
+		createTime:          time.Now(),
 		incomingResults:     make(chan result.AsyncAdmissionResult),
 		admitterCommands:    make(chan admitterCmdFunc),
 		resultNotifications: make(chan result.AdmissionResult, 100),
@@ -88,6 +91,13 @@ func (s *AdmissionManager) shouldAdmitWorkload(
 
 	builder := result.NewAggregatedAdmissionResultBuilder()
 	builder.SetAdmissionAllowed()
+
+	if time.Since(s.createTime) < 15*time.Second {
+		builder.SetAdmissionDenied()
+		builder.AddProviderDetails("startup check", []string{"Admission checks not loaded yet, rejecting workload"})
+		s.logger.Info("Admission checks not loaded yet, rejecting workload")
+		return builder.Build(), nil
+	}
 
 	// Debug: Check each result in detail
 	for checkName, asyncResult := range resultSnapshot {
