@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/konflux-ci/kueue-external-admission/pkg/admission"
 	"github.com/konflux-ci/kueue-external-admission/pkg/admission/enqueue"
@@ -92,7 +93,7 @@ func (w *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	// TODO: check what other AC controllers do when the workload has no quota reservation
 	if !workload.HasQuotaReservation(wl) {
 		log.Info("Workload has no quota reservation, skipping", "workload", wl.Name)
-		return reconcile.Result{}, nil
+		return reconcile.Result{RequeueAfter: 10 * time.Second}, nil
 	}
 
 	if workload.IsFinished(wl) || workload.IsEvicted(wl) || workload.IsAdmitted(wl) {
