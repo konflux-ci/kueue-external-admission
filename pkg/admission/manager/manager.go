@@ -36,14 +36,14 @@ func (s *AdmissionManager) Start(ctx context.Context) error {
 	admitterManager := NewAdmitterManager(s.logger, s.admitterCommands, s.incomingResults)
 	go admitterManager.Run(ctx)
 
-	resultManager := NewResultManager(s.logger)
-	go resultManager.Run(
-		ctx,
+	resultManager := NewResultManager(
+		s.logger,
+		s.admitterCommands,
 		s.incomingResults,
 		s.resultNotifications,
 		s.resultSnapshot,
-		s.admitterCommands,
 	)
+	go resultManager.Run(ctx)
 
 	<-ctx.Done()
 	s.logger.Info("Stopping AdmissionService, context done")
