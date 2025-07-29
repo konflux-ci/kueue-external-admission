@@ -110,8 +110,8 @@ func (m *ResultManager) removeStaleResults(admitterCommands chan<- admitterCmdFu
 		"registrySize", len(m.resultsRegistry),
 	)
 
-	resultChan := make(chan map[string]bool)
-	admitterCommands <- ListAdmitters(resultChan)
+	listAdmitters, resultChan := ListAdmitters()
+	admitterCommands <- listAdmitters
 
 	select {
 	case <-time.After(10 * time.Second):

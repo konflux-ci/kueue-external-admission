@@ -103,12 +103,14 @@ func RemoveAdmitter(admissionCheckName string) admitterCmdFunc {
 	}
 }
 
-func ListAdmitters(result chan map[string]bool) admitterCmdFunc {
+func ListAdmitters() (admitterCmdFunc, <-chan map[string]bool) {
+	resultChan := make(chan map[string]bool, 1)
 	return func(m *AdmitterManager, ctx context.Context) {
+		defer close(resultChan)
 		admitters := make(map[string]bool)
 		for admissionCheckName := range m.admitters {
 			admitters[admissionCheckName] = true
 		}
-		result <- admitters
-	}
+		resultChan <- admitters
+	}, resultChan
 }
