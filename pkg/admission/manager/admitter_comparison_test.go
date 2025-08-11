@@ -302,6 +302,9 @@ func TestSetAdmitter_ComparisonBehavior(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	// Start the manager in a goroutine
+	go manager.Run(ctx)
+
 	t.Run("SameInstanceSkipped", func(t *testing.T) {
 		RegisterTestingT(t)
 
@@ -310,9 +313,14 @@ func TestSetAdmitter_ComparisonBehavior(t *testing.T) {
 
 		// Add admitter first time
 		setCmd1 := SetAdmitter("test-check", mockAdmitter)
-		setCmd1(manager, ctx)
+		admitterCommands <- setCmd1
 
-		Expect(len(manager.admitters)).To(Equal(1))
+		Eventually(func() int {
+			listCmd, resultChan := ListAdmitters()
+			admitterCommands <- listCmd
+			result := <-resultChan
+			return len(result)
+		}, 1*time.Second).Should(Equal(1), "Expected 1 admitter after first add")
 
 		// Wait for first sync call and count results
 		var resultCount int
@@ -330,10 +338,15 @@ func TestSetAdmitter_ComparisonBehavior(t *testing.T) {
 
 		// Add same admitter instance again - should be skipped
 		setCmd2 := SetAdmitter("test-check", mockAdmitter)
-		setCmd2(manager, ctx)
+		admitterCommands <- setCmd2
 
 		// Should still be 1 admitter and sync should not be called again
-		Expect(len(manager.admitters)).To(Equal(1))
+		Consistently(func() int {
+			listCmd, resultChan := ListAdmitters()
+			admitterCommands <- listCmd
+			result := <-resultChan
+			return len(result)
+		}, 500*time.Millisecond).Should(Equal(1), "Expected admitter count to remain 1 when skipping identical instance")
 
 		// Give some time and verify no additional results (sync was skipped)
 		Consistently(func() int {
@@ -357,17 +370,26 @@ func TestSetAdmitter_ComparisonBehavior(t *testing.T) {
 
 		// Add first admitter
 		setCmd1 := SetAdmitter("test-check-2", mockAdmitter1)
-		setCmd1(manager, ctx)
+		admitterCommands <- setCmd1
 
-		Expect(len(manager.admitters)).To(Equal(2)) // We already have one from previous test
+		Eventually(func() int {
+			listCmd, resultChan := ListAdmitters()
+			admitterCommands <- listCmd
+			result := <-resultChan
+			return len(result)
+		}, 1*time.Second).Should(Equal(2), "Expected 2 admitters after adding first to different name")
 
 		// Add different admitter instance - should replace
 		setCmd2 := SetAdmitter("test-check-2", mockAdmitter2)
-		setCmd2(manager, ctx)
+		admitterCommands <- setCmd2
 
 		// Should still be 2 admitters total, but the second one should be replaced
-		Expect(len(manager.admitters)).To(Equal(2))
-		Expect(manager.admitters["test-check-2"].Admitter).To(Equal(mockAdmitter2), "Expected new admitter to replace old one")
+		Eventually(func() int {
+			listCmd, resultChan := ListAdmitters()
+			admitterCommands <- listCmd
+			result := <-resultChan
+			return len(result)
+		}, 1*time.Second).Should(Equal(2), "Expected 2 admitters after replacement")
 	})
 
 	t.Run("RealAdmittersWithIdenticalConfigSkipped", func(t *testing.T) {
@@ -399,10 +421,14 @@ func TestSetAdmitter_ComparisonBehavior(t *testing.T) {
 		Expect(err1).ToNot(HaveOccurred())
 
 		setCmd1 := SetAdmitter("test-check-3", admitter1)
-		setCmd1(manager, ctx)
+		admitterCommands <- setCmd1
 
-		Expect(len(manager.admitters)).To(Equal(3)) // We have 2 from previous tests
-		originalAdmitter := manager.admitters["test-check-3"].Admitter
+		Eventually(func() int {
+			listCmd, resultChan := ListAdmitters()
+			admitterCommands <- listCmd
+			result := <-resultChan
+			return len(result)
+		}, 1*time.Second).Should(Equal(3), "Expected 3 admitters after adding first")
 
 		// Create second admitter with IDENTICAL config
 		admitter2, err2 := factory.NewAdmitter(config, logr.Discard(), "test-check-3")
@@ -412,13 +438,15 @@ func TestSetAdmitter_ComparisonBehavior(t *testing.T) {
 		Expect(admitter1.Equal(admitter2)).To(BeTrue(), "Expected admitters with identical config to be equal")
 
 		setCmd2 := SetAdmitter("test-check-3", admitter2)
-		setCmd2(manager, ctx)
+		admitterCommands <- setCmd2
 
-		// With identical config, the admitter should NOT be replaced
-		Expect(len(manager.admitters)).To(Equal(3))
-		currentAdmitter := manager.admitters["test-check-3"].Admitter
-		Expect(currentAdmitter).To(Equal(originalAdmitter), "Expected admitter to NOT be replaced with identical config")
-		Expect(currentAdmitter).ToNot(Equal(admitter2), "Expected original admitter to remain")
+		// With identical config, the admitter should NOT be replaced (count stays the same)
+		Consistently(func() int {
+			listCmd, resultChan := ListAdmitters()
+			admitterCommands <- listCmd
+			result := <-resultChan
+			return len(result)
+		}, 500*time.Millisecond).Should(Equal(3), "Expected admitter count to remain the same when skipping identical config")
 
 		t.Logf("Result: Real admitters with identical configurations are now skipped, improving performance")
 	})

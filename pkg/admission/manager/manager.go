@@ -56,6 +56,7 @@ func (s *AdmissionManager) Start(ctx context.Context) error {
 
 	<-ctx.Done()
 	s.logger.Info("Stopping AdmissionService, context done")
+	// TODO: close channels, wait for sub managers to finish?
 	return ctx.Err()
 }
 
