@@ -3,7 +3,6 @@ package manager
 import (
 	"context"
 	"fmt"
-	"reflect"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -58,12 +57,13 @@ func (m *AdmitterManager) Run(ctx context.Context) {
 func SetAdmitter(admissionCheckName string, admitter admission.Admitter) admitterCmdFunc {
 	return func(m *AdmitterManager, ctx context.Context) {
 		entry, ok := m.admitters[admissionCheckName]
-		// TODO: check if this is a valid check
-		// looks like that the admitter always changes
-		if ok && reflect.DeepEqual(entry.Admitter, admitter) {
+		// Check if the new admitter is functionally equivalent to the existing one
+		if ok && entry.Admitter.Equal(admitter) {
 			m.logger.Info("Admitter already set, skipping", "admissionCheck", admissionCheckName)
 			return
-		} else if ok {
+		}
+
+		if ok {
 			m.logger.Info("Replacing existing admitter for AdmissionCheck", "admissionCheck", admissionCheckName)
 			RemoveAdmitter(admissionCheckName)(m, ctx)
 			m.logger.Info("Removed old admitter for AdmissionCheck", "admissionCheck", admissionCheckName)

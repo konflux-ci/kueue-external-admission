@@ -11,6 +11,7 @@ import (
 	"github.com/go-logr/logr"
 	. "github.com/onsi/gomega"
 
+	"github.com/konflux-ci/kueue-external-admission/pkg/admission"
 	"github.com/konflux-ci/kueue-external-admission/pkg/admission/result"
 )
 
@@ -38,6 +39,22 @@ func (m *mockAdmitterForAdmitterManager) Sync(ctx context.Context, asyncAdmissio
 	// Real admitters would do their work here and send results to asyncAdmissionResults
 
 	return nil
+}
+
+func (m *mockAdmitterForAdmitterManager) Equal(other admission.Admitter) bool {
+	// Type assertion to check if the other admitter is also a mock admitter
+	otherMock, ok := other.(*mockAdmitterForAdmitterManager)
+	if !ok {
+		return false
+	}
+
+	// Compare the relevant fields that determine functional equivalence
+	// Compare errors by message, not by instance
+	errorsEqual := (m.syncError == nil && otherMock.syncError == nil) ||
+		(m.syncError != nil && otherMock.syncError != nil && m.syncError.Error() == otherMock.syncError.Error())
+
+	return errorsEqual && m.blockUntilCancel == otherMock.blockUntilCancel
+	// Note: We don't compare syncCalled or syncCallCount as these are runtime state, not configuration
 }
 
 func newMockAdmitterForAdmitterManager() *mockAdmitterForAdmitterManager {

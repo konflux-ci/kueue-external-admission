@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/konflux-ci/kueue-external-admission/pkg/admission"
 	"github.com/konflux-ci/kueue-external-admission/pkg/admission/result"
 	. "github.com/onsi/gomega"
 )
@@ -48,6 +49,38 @@ func (m *mockAdmitter) Sync(ctx context.Context, asyncAdmissionResults chan<- re
 	}()
 
 	return nil
+}
+
+func (m *mockAdmitter) Equal(other admission.Admitter) bool {
+	// Type assertion to check if the other admitter is also a mock admitter
+	otherMock, ok := other.(*mockAdmitter)
+	if !ok {
+		return false
+	}
+
+	// Compare the relevant configuration fields
+	if m.shouldAdmit != otherMock.shouldAdmit ||
+		m.checkName != otherMock.checkName ||
+		len(m.details) != len(otherMock.details) {
+		return false
+	}
+
+	// Compare details slice
+	for i, detail := range m.details {
+		if detail != otherMock.details[i] {
+			return false
+		}
+	}
+
+	// Compare errors
+	if (m.err == nil) != (otherMock.err == nil) {
+		return false
+	}
+	if m.err != nil && otherMock.err != nil {
+		return m.err.Error() == otherMock.err.Error()
+	}
+
+	return true
 }
 
 func newMockAdmitter(checkName string, shouldAdmit bool, details []string) *mockAdmitter {

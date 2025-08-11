@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"reflect"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -268,4 +269,34 @@ func (a *admitter) getAlertName(alert *models.GettableAlert) string {
 	}
 
 	return "unknown-alert"
+}
+
+// Equal reports whether this AlertManager admitter is functionally equivalent to another admitter.
+// It compares the relevant configuration fields that determine the admitter's behavior,
+// but ignores internal state like HTTP clients, loggers, etc.
+func (a *admitter) Equal(other admission.Admitter) bool {
+	// Type assertion to check if the other admitter is also an AlertManager admitter
+	otherAlertManager, ok := other.(*admitter)
+	if !ok {
+		return false
+	}
+
+	// Compare admission check names
+	if a.admissionCheckName != otherAlertManager.admissionCheckName {
+		return false
+	}
+
+	// Compare alert filters (converted from config)
+	if len(a.alertFilters) != len(otherAlertManager.alertFilters) {
+		return false
+	}
+	for i, filter := range a.alertFilters {
+		if filter != otherAlertManager.alertFilters[i] {
+			return false
+		}
+	}
+
+	// Compare the relevant configuration fields using reflect.DeepEqual
+	// This is safe because we're comparing the configuration structs, not the admitter instances
+	return reflect.DeepEqual(a.config, otherAlertManager.config)
 }
