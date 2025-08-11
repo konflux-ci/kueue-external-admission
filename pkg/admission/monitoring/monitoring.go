@@ -44,6 +44,15 @@ var (
 		},
 		[]string{"check_name", "error_type"},
 	)
+
+	// admissionCheckSyncFailures counts failed sync calls for each admission check
+	admissionCheckSyncFailures = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "kueue_external_admission_check_sync_failures_total",
+			Help: "Total number of failed sync calls for each admission check",
+		},
+		[]string{"check_name"},
+	)
 )
 
 func init() {
@@ -53,6 +62,7 @@ func init() {
 		admissionCheckDecisionsTotal,
 		admissionCheckDuration,
 		admissionCheckErrors,
+		admissionCheckSyncFailures,
 	)
 }
 
@@ -102,4 +112,9 @@ func (m *AdmissionMetrics) RecordAdmissionCheckStatus(admitted bool) {
 
 func (m *AdmissionMetrics) DeleteAdmissionCheckStatus() {
 	admissionCheckStatus.DeleteLabelValues(m.checkName)
+}
+
+// RecordSyncFailure records a failed sync call for the admission check
+func (m *AdmissionMetrics) RecordSyncFailure() {
+	admissionCheckSyncFailures.WithLabelValues(m.checkName).Inc()
 }

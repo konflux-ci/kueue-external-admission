@@ -78,13 +78,28 @@ func SetAdmitter(admissionCheckName string, admitter admission.Admitter) admitte
 
 		// Start the admitter's sync process in a goroutine
 		go func() {
-			if err := admitter.Sync(ctx, m.incomingResults); err != nil {
+			admissionMetrics := monitoring.NewAdmissionMetrics(admissionCheckName)
+			for {
+				err := admitter.Sync(ctx, m.incomingResults)
+				if err == nil {
+					// Sync completed successfully (likely due to context cancellation)
+					return
+				}
+
+				// Record the sync failure in metrics
+				admissionMetrics.RecordSyncFailure()
+
 				retryIn := 15 * time.Second
-				m.logger.Error(err, "Failed to sync admitter", "admissionCheck", admissionCheckName, "retryIn", retryIn)
-				go func() {
-					time.Sleep(retryIn)
-					m.admitterCommands <- SetAdmitter(admissionCheckName, admitter)
-				}()
+				m.logger.Error(err, "Failed to sync admitter, retrying", "admissionCheck", admissionCheckName, "retryIn", retryIn)
+
+				// Wait before retrying, but respect context cancellation
+				select {
+				case <-ctx.Done():
+					m.logger.Info("Context cancelled, stopping sync retries", "admissionCheck", admissionCheckName)
+					return
+				case <-time.After(retryIn):
+					// Continue to retry
+				}
 			}
 		}()
 		// Set initial status to true just to make sure that the metric is set
