@@ -86,7 +86,10 @@ func (r *AdmissionCheckReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	if err := r.Get(ctx, req.NamespacedName, ac); err != nil {
 		if client.IgnoreNotFound(err) == nil {
 			// AdmissionCheck was deleted, clean up admitter
-			r.admissionService.RemoveAdmitter(req.Name)
+			if err := r.admissionService.RemoveAdmitter(ctx, req.Name); err != nil {
+				log.Error(err, "Failed to remove admitter")
+				return ctrl.Result{}, err
+			}
 		}
 		return reconcile.Result{}, client.IgnoreNotFound(err)
 	}
@@ -111,9 +114,10 @@ func (r *AdmissionCheckReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return r.updateAdmissionCheckStatus(ctx, ac, false, "failed to create admitter: "+err.Error())
 	}
 
-	// Register the admitter with the shared service (using interface)
-	// TODO: handle a case where the admitter is already set
-	r.admissionService.SetAdmitter(req.Name, admitter)
+	if err := r.admissionService.SetAdmitter(ctx, req.Name, admitter); err != nil {
+		log.Error(err, "Failed to set admitter")
+		return r.updateAdmissionCheckStatus(ctx, ac, false, "failed to set admitter: "+err.Error())
+	}
 	log.Info("Created/updated admitter for AdmissionCheck", "admissionCheck", req.Name)
 
 	// Update AdmissionCheck status to Active

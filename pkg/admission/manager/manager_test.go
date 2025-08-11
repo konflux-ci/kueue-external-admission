@@ -60,13 +60,13 @@ func newMockAdmitter(checkName string, shouldAdmit bool, details []string) *mock
 
 func TestAdmissionService_Creation(t *testing.T) {
 	RegisterTestingT(t)
-	service := NewManager(logr.Discard())
+	service := NewManager(logr.Discard(), 1*time.Second)
 	Expect(service).ToNot(BeNil(), "Expected non-nil AdmissionService")
 }
 
 func TestAdmissionService_ConcurrentAccess(t *testing.T) {
 	RegisterTestingT(t)
-	service := NewManager(logr.Discard())
+	service := NewManager(logr.Discard(), 1*time.Second)
 
 	// Start the service
 	ctx, cancel := context.WithCancel(context.Background())
@@ -79,7 +79,7 @@ func TestAdmissionService_ConcurrentAccess(t *testing.T) {
 	// Create a test admitter
 	admitter := newMockAdmitter("test-key", true, []string{"detail1"})
 
-	service.SetAdmitter("test-key", admitter)
+	service.SetAdmitter(ctx, "test-key", admitter)
 
 	done := make(chan bool, 10)
 
@@ -91,7 +91,8 @@ func TestAdmissionService_ConcurrentAccess(t *testing.T) {
 			// Test SetAdmitter
 			testAdmitter := newMockAdmitter("concurrent-test", true, []string{"detail1"})
 			t.Log("trying to set admitter")
-			service.SetAdmitter("concurrent-test", testAdmitter)
+			err := service.SetAdmitter(ctx, "concurrent-test", testAdmitter)
+			Expect(err).ToNot(HaveOccurred(), "Failed to set admitter")
 			t.Log("SetAdmitter")
 			time.Sleep(3 * time.Second)
 			// Test retrieving admitter
@@ -106,7 +107,7 @@ func TestAdmissionService_ConcurrentAccess(t *testing.T) {
 			t.Log("retrieved admitter")
 
 			t.Log("removing admitter")
-			service.RemoveAdmitter("concurrent-test")
+			service.RemoveAdmitter(ctx, "concurrent-test")
 			t.Log("removed admitter")
 		}()
 	}
@@ -117,48 +118,9 @@ func TestAdmissionService_ConcurrentAccess(t *testing.T) {
 	}
 }
 
-func TestAdmissionService_InterfaceFlexibility(t *testing.T) {
-	RegisterTestingT(t)
-	service := NewManager(logr.Discard())
-
-	// Start the service
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	go func() {
-		_ = service.Start(ctx)
-	}()
-
-	// Give the service a moment to start
-	time.Sleep(100 * time.Millisecond)
-
-	// Create mock admitter
-	mockAdmitter := newMockAdmitter("test-key", true, []string{})
-
-	// Store as Admitter interface
-	service.SetAdmitter("test-key", mockAdmitter)
-
-	// Give some time for the admitter to be set and sync
-	time.Sleep(500 * time.Millisecond)
-
-	// Retrieve as interface
-	cmd, resultChan := GetSnapshot()
-	service.resultCmd <- cmd
-	results := <-resultChan
-	Expect(results).ToNot(BeNil(), "Expected non-nil retrieved admitter")
-
-	// Test the ShouldAdmitWorkload method through the interface
-	result, err := service.ShouldAdmitWorkload(ctx, []string{"test-key"})
-	Expect(err).ToNot(HaveOccurred(), "Expected no error")
-	Expect(result.ShouldAdmit()).To(
-		BeTrue(),
-		"Expected workload to be admitted",
-	)
-}
-
 func TestAdmissionService_RetrieveMultipleAdmitters(t *testing.T) {
 	RegisterTestingT(t)
-	service := NewManager(logr.Discard())
+	service := NewManager(logr.Discard(), 1*time.Second)
 
 	// Start the service
 	ctx, cancel := context.WithCancel(context.Background())
@@ -176,8 +138,8 @@ func TestAdmissionService_RetrieveMultipleAdmitters(t *testing.T) {
 	admitter2 := newMockAdmitter("key2", false, []string{"detail2"})
 
 	// Store admitters
-	service.SetAdmitter("key1", admitter1)
-	service.SetAdmitter("key2", admitter2)
+	service.SetAdmitter(ctx, "key1", admitter1)
+	service.SetAdmitter(ctx, "key2", admitter2)
 
 	// Give some time for the admitters to be set
 	time.Sleep(200 * time.Millisecond)

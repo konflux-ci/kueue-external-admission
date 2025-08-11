@@ -15,20 +15,22 @@ import (
 type AdmissionManager struct {
 	logger              logr.Logger
 	startTime           time.Time
-	admitterCmd    chan admitterCmdFunc             // Commands to add/remove admitters
+	admitterCmd         chan admitterCmdFunc             // Commands to add/remove admitters
 	incomingResults     chan result.AsyncAdmissionResult // Admission results from admitters
 	resultNotifications chan result.AdmissionResult      // Notifications about result changes
 	resultCmd           chan resultCmdFunc               // result commands
+	coldStart           time.Duration
 }
 
 // NewManager creates a new AdmissionService
-func NewManager(logger logr.Logger) *AdmissionManager {
+func NewManager(logger logr.Logger, coldStart time.Duration) *AdmissionManager {
 	return &AdmissionManager{
 		logger:              logger.WithName("manager"),
 		incomingResults:     make(chan result.AsyncAdmissionResult),
-		admitterCmd:    make(chan admitterCmdFunc),
+		admitterCmd:         make(chan admitterCmdFunc),
 		resultNotifications: make(chan result.AdmissionResult, 100),
 		resultCmd:           make(chan resultCmdFunc),
+		coldStart:           coldStart,
 	}
 }
 
@@ -57,12 +59,24 @@ func (s *AdmissionManager) Start(ctx context.Context) error {
 	return ctx.Err()
 }
 
-func (s *AdmissionManager) SetAdmitter(admissionCheckName string, admitter admission.Admitter) {
-	s.admitterCmd <- SetAdmitter(admissionCheckName, admitter)
+func (s *AdmissionManager) SetAdmitter(ctx context.Context, admissionCheckName string, admitter admission.Admitter) error {
+	timeout, _ := context.WithTimeout(ctx, 10*time.Second)
+	select {
+	case <-timeout.Done():
+		return ctx.Err()
+	case s.admitterCmd <- SetAdmitter(admissionCheckName, admitter):
+		return nil
+	}
 }
 
-func (s *AdmissionManager) RemoveAdmitter(admissionCheckName string) {
-	s.admitterCmd <- RemoveAdmitter(admissionCheckName)
+func (s *AdmissionManager) RemoveAdmitter(ctx context.Context, admissionCheckName string) error {
+	timeout, _ := context.WithTimeout(ctx, 10*time.Second)
+	select {
+	case <-timeout.Done():
+		return ctx.Err()
+	case s.admitterCmd <- RemoveAdmitter(admissionCheckName):
+		return nil
+	}
 }
 
 func (s *AdmissionManager) AdmissionResultChanged() <-chan result.AdmissionResult {
@@ -97,7 +111,7 @@ func (s *AdmissionManager) shouldAdmitWorkload(
 	builder.SetAdmissionAllowed()
 
 	// TODO: Add a test for this
-	if time.Since(s.startTime) < 30*time.Second {
+	if time.Since(s.startTime) < s.coldStart {
 		builder.SetAdmissionDenied()
 		builder.AddProviderDetails("startup check", []string{"Admission checks not loaded yet, rejecting workload"})
 		s.logger.Info("Admission checks not loaded yet, rejecting workload")

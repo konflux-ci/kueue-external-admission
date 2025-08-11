@@ -295,7 +295,7 @@ func main() {
 		os.Exit(1)
 	}
 	// Initialize the admission manager
-	admissionManager := admissionmanager.NewManager(ctrl.Log.WithName("admission-manager"))
+	admissionManager := admissionmanager.NewManager(ctrl.Log.WithName("admission-manager"), 30*time.Second)
 	// Add admission manager to manager so it starts/stops with the manager
 	if err = mgr.Add(admissionManager); err != nil {
 		setupLog.Error(err, "unable to add admission manager to manager")
