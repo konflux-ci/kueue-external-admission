@@ -15,7 +15,7 @@ import (
 type AdmissionManager struct {
 	logger              logr.Logger
 	startTime           time.Time
-	admitterCommands    chan admitterCmdFunc             // Commands to add/remove admitters
+	admitterCmd    chan admitterCmdFunc             // Commands to add/remove admitters
 	incomingResults     chan result.AsyncAdmissionResult // Admission results from admitters
 	resultNotifications chan result.AdmissionResult      // Notifications about result changes
 	resultCmd           chan resultCmdFunc               // result commands
@@ -26,7 +26,7 @@ func NewManager(logger logr.Logger) *AdmissionManager {
 	return &AdmissionManager{
 		logger:              logger.WithName("manager"),
 		incomingResults:     make(chan result.AsyncAdmissionResult),
-		admitterCommands:    make(chan admitterCmdFunc),
+		admitterCmd:    make(chan admitterCmdFunc),
 		resultNotifications: make(chan result.AdmissionResult, 100),
 		resultCmd:           make(chan resultCmdFunc),
 	}
@@ -38,14 +38,14 @@ func (s *AdmissionManager) Start(ctx context.Context) error {
 
 	admitterManager := NewAdmitterManager(
 		s.logger.WithName("admitter-manager"),
-		s.admitterCommands,
+		s.admitterCmd,
 		s.incomingResults,
 	)
 	go admitterManager.Run(ctx)
 
 	resultManager := NewResultManager(
 		s.logger.WithName("result-manager"),
-		s.admitterCommands,
+		s.admitterCmd,
 		s.incomingResults,
 		s.resultNotifications,
 		s.resultCmd,
@@ -58,11 +58,11 @@ func (s *AdmissionManager) Start(ctx context.Context) error {
 }
 
 func (s *AdmissionManager) SetAdmitter(admissionCheckName string, admitter admission.Admitter) {
-	s.admitterCommands <- SetAdmitter(admissionCheckName, admitter)
+	s.admitterCmd <- SetAdmitter(admissionCheckName, admitter)
 }
 
 func (s *AdmissionManager) RemoveAdmitter(admissionCheckName string) {
-	s.admitterCommands <- RemoveAdmitter(admissionCheckName)
+	s.admitterCmd <- RemoveAdmitter(admissionCheckName)
 }
 
 func (s *AdmissionManager) AdmissionResultChanged() <-chan result.AdmissionResult {

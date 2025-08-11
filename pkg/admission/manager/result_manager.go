@@ -51,7 +51,7 @@ func (m *ResultManager) Run(ctx context.Context) {
 		// Clean the local results registry. Remove results for which the admitter is not present.
 		case <-ticker.C:
 			m.removeStaleResults(m.admitterCommands)
-		// Publish the current state of the results registry.
+		// Run a command.
 		case cmd := <-m.resultCmd:
 			cmd(m, ctx)
 		// Receive new results from the admitters.
@@ -112,14 +112,14 @@ func (m *ResultManager) removeStaleResults(admitterCommands chan<- admitterCmdFu
 		"registrySize", len(m.resultsRegistry),
 	)
 	initialRegistrySize := len(m.resultsRegistry)
-	listAdmitters, resultChan := ListAdmitters()
+	listAdmitters, getAdmitters := ListAdmitters()
 	admitterCommands <- listAdmitters
 
 	select {
 	case <-time.After(10 * time.Second):
 		m.logger.Error(fmt.Errorf("timeout waiting for admitters"), "Timeout waiting for admitters")
 		return
-	case admitters := <-resultChan:
+	case admitters := <-getAdmitters:
 		maps.DeleteFunc(m.resultsRegistry, func(key string, _ result.AsyncAdmissionResult) bool {
 			_, ok := admitters[key]
 			return !ok
