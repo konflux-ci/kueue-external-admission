@@ -31,13 +31,11 @@ func (m *mockAdmitterForAdmitterManager) Sync(ctx context.Context, asyncAdmissio
 		return m.syncError
 	}
 
-	// Start background work in a goroutine (like real admitters do)
-	go func() {
-		if m.blockUntilCancel {
-			<-ctx.Done()
-		}
-		// Real admitters would do their work here and send results to asyncAdmissionResults
-	}()
+	// Now Sync is blocking - it runs until context is cancelled or work is done
+	if m.blockUntilCancel {
+		<-ctx.Done()
+	}
+	// Real admitters would do their work here and send results to asyncAdmissionResults
 
 	return nil
 }
@@ -184,7 +182,11 @@ func TestSetAdmitter_NewAdmitter(t *testing.T) {
 	Expect(entry.Admitter).To(Equal(mockAdmitter), "Expected correct admitter instance")
 	Expect(entry.AdmissionCheckName).To(Equal("test-check"), "Expected correct admission check name")
 	Expect(entry.Cancel).ToNot(BeNil(), "Expected cancel function to be set")
-	Expect(mockAdmitter.syncCalled).To(BeTrue(), "Expected Sync to be called on admitter")
+
+	// Since Sync now runs in a goroutine, we need to wait for it to be called
+	Eventually(func() bool {
+		return mockAdmitter.syncCalled
+	}, 1*time.Second).Should(BeTrue(), "Expected Sync to be called on admitter")
 }
 
 func TestSetAdmitter_ReplaceExistingAdmitter(t *testing.T) {
@@ -217,7 +219,11 @@ func TestSetAdmitter_ReplaceExistingAdmitter(t *testing.T) {
 	newEntry := manager.admitters["test-check"]
 	Expect(newEntry).ToNot(Equal(originalEntry), "Expected different entry after replacement")
 	Expect(newEntry.Admitter).To(Equal(secondAdmitter), "Expected new admitter instance")
-	Expect(secondAdmitter.syncCalled).To(BeTrue(), "Expected Sync to be called on new admitter")
+
+	// Since Sync now runs in a goroutine, we need to wait for it to be called
+	Eventually(func() bool {
+		return secondAdmitter.syncCalled
+	}, 1*time.Second).Should(BeTrue(), "Expected Sync to be called on new admitter")
 }
 
 func TestSetAdmitter_SameAdmitterSkipped(t *testing.T) {

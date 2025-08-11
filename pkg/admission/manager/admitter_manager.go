@@ -76,14 +76,17 @@ func SetAdmitter(admissionCheckName string, admitter admission.Admitter) admitte
 			Cancel:             cancel,
 		}
 
-		if err := admitter.Sync(ctx, m.incomingResults); err != nil {
-			retryIn := 15 * time.Second
-			m.logger.Error(err, "Failed to sync admitter", "admissionCheck", admissionCheckName, "retryIn", retryIn)
-			go func() {
-				time.Sleep(retryIn)
-				m.admitterCommands <- SetAdmitter(admissionCheckName, admitter)
-			}()
-		}
+		// Start the admitter's sync process in a goroutine
+		go func() {
+			if err := admitter.Sync(ctx, m.incomingResults); err != nil {
+				retryIn := 15 * time.Second
+				m.logger.Error(err, "Failed to sync admitter", "admissionCheck", admissionCheckName, "retryIn", retryIn)
+				go func() {
+					time.Sleep(retryIn)
+					m.admitterCommands <- SetAdmitter(admissionCheckName, admitter)
+				}()
+			}
+		}()
 		// Set initial status to true just to make sure that the metric is set
 		monitoring.NewAdmissionMetrics(admissionCheckName).RecordAdmissionCheckStatus(false)
 		m.logger.Info("Added admitter for AdmissionCheck", "admissionCheck", admissionCheckName)

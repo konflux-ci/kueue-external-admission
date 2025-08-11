@@ -86,36 +86,33 @@ func NewAdmitter(
 }
 
 // Sync runs the admission check in a loop and sends the results to the channel
-// the call doesn't block
+// This method blocks until the context is cancelled
 func (a *admitter) Sync(ctx context.Context, results chan<- result.AsyncAdmissionResult) error {
-	go func() {
-		ticker := time.NewTicker(a.config.CheckTTL.Duration)
-		defer ticker.Stop()
+	ticker := time.NewTicker(a.config.CheckTTL.Duration)
+	defer ticker.Stop()
 
-		for {
-			select {
-			case <-ctx.Done():
-				a.logger.Info("AlertManager admission check cancelled by context")
-				return
-			case <-ticker.C:
-				a.logger.Info("Starting sync iteration", "admissionCheck", a.admissionCheckName)
-				ret, err := a.shouldAdmit(ctx)
-				if err != nil {
-					a.logger.Error(err, "Failed to get alerts from AlertManager")
-					results <- result.AsyncAdmissionResult{
-						AdmissionResult: nil,
-						Error:           err,
-					}
-				} else {
-					results <- result.AsyncAdmissionResult{
-						AdmissionResult: ret,
-						Error:           nil,
-					}
+	for {
+		select {
+		case <-ctx.Done():
+			a.logger.Info("AlertManager admission check cancelled by context")
+			return ctx.Err()
+		case <-ticker.C:
+			a.logger.Info("Starting sync iteration", "admissionCheck", a.admissionCheckName)
+			ret, err := a.shouldAdmit(ctx)
+			if err != nil {
+				a.logger.Error(err, "Failed to get alerts from AlertManager")
+				results <- result.AsyncAdmissionResult{
+					AdmissionResult: nil,
+					Error:           err,
+				}
+			} else {
+				results <- result.AsyncAdmissionResult{
+					AdmissionResult: ret,
+					Error:           nil,
 				}
 			}
 		}
-	}()
-	return nil
+	}
 }
 
 // ShouldAdmit implements admission.Admitter interface
