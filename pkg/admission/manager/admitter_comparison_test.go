@@ -30,13 +30,12 @@ func TestAdmitterComparison_ReflectDeepEqual(t *testing.T) {
 		Expect(mock1.Equal(mock2)).To(BeTrue(), "Expected identical mock admitters to be equal")
 		Expect(reflect.DeepEqual(mock1, mock2)).To(BeTrue(), "Expected identical mock admitters to be equal with DeepEqual too")
 
-		// Mock admitters with different state should not be equal
-		mock3 := newMockAdmitterForAdmitterManager()
-		mock3.syncCalled = true // Different state
+		// Mock admitters with different configuration should not be equal
+		mock3 := newMockAdmitterForAdmitterManagerWithName("different-check")
 
-		// The Equal method should ignore runtime state like syncCalled
-		Expect(mock1.Equal(mock3)).To(BeTrue(), "Expected mock admitters to be equal despite different runtime state")
-		Expect(reflect.DeepEqual(mock1, mock3)).To(BeFalse(), "Expected mock admitters with different state to not be equal with DeepEqual")
+		// The Equal method should compare configuration
+		Expect(mock1.Equal(mock3)).To(BeFalse(), "Expected mock admitters with different check names to not be equal")
+		Expect(reflect.DeepEqual(mock1, mock3)).To(BeFalse(), "Expected mock admitters with different check names to not be equal with DeepEqual")
 
 		// Mock admitters with different errors should not be equal
 		mock4 := newMockAdmitterWithError(fmt.Errorf("test error"))
@@ -314,7 +313,20 @@ func TestSetAdmitter_ComparisonBehavior(t *testing.T) {
 		setCmd1(manager, ctx)
 
 		Expect(len(manager.admitters)).To(Equal(1))
-		originalCallCount := mockAdmitter.syncCallCount
+
+		// Wait for first sync call and count results
+		var resultCount int
+		Eventually(func() bool {
+			select {
+			case result := <-incomingResults:
+				if result.AdmissionResult.CheckName() == "mock-check" {
+					resultCount++
+					return true
+				}
+			default:
+			}
+			return false
+		}, 1*time.Second).Should(BeTrue(), "Expected first Sync to be called")
 
 		// Add same admitter instance again - should be skipped
 		setCmd2 := SetAdmitter("test-check", mockAdmitter)
@@ -322,7 +334,18 @@ func TestSetAdmitter_ComparisonBehavior(t *testing.T) {
 
 		// Should still be 1 admitter and sync should not be called again
 		Expect(len(manager.admitters)).To(Equal(1))
-		Expect(mockAdmitter.syncCallCount).To(Equal(originalCallCount), "Expected Sync not to be called again for same instance")
+
+		// Give some time and verify no additional results (sync was skipped)
+		Consistently(func() int {
+			select {
+			case result := <-incomingResults:
+				if result.AdmissionResult.CheckName() == "mock-check" {
+					resultCount++
+				}
+			default:
+			}
+			return resultCount
+		}, 500*time.Millisecond, 50*time.Millisecond).Should(Equal(1), "Expected Sync not to be called again for same instance")
 	})
 
 	t.Run("DifferentInstancesReplaced", func(t *testing.T) {
