@@ -47,7 +47,7 @@ const (
 )
 
 // NewAdmissionCheckReconciler creates a new AdmissionCheckReconciler
-func NewAdmissionCheckReconciler(client client.Client, scheme *runtime.Scheme, admissionService *manager.AdmissionManager) (*AdmissionCheckReconciler, error) {
+func NewAdmissionCheckReconciler(client client.Client, scheme *runtime.Scheme, admissionService *manager.AdmissionManager, admitterFactory *factory.Factory) (*AdmissionCheckReconciler, error) {
 	acHelper, err := acutil.NewConfigHelper[*konfluxciv1alpha1.ExternalAdmissionConfig](client)
 	if err != nil {
 		return nil, err
@@ -57,7 +57,7 @@ func NewAdmissionCheckReconciler(client client.Client, scheme *runtime.Scheme, a
 		Scheme:           scheme,
 		admissionService: admissionService,
 		acHelper:         acHelper,
-		admitterFactory:  factory.NewAdmitter,
+		admitterFactory:  admitterFactory,
 	}, nil
 }
 
@@ -67,7 +67,7 @@ type AdmissionCheckReconciler struct {
 	Scheme           *runtime.Scheme
 	admissionService *manager.AdmissionManager // Shared service for managing admitters
 	acHelper         *acutil.ConfigHelper[*konfluxciv1alpha1.ExternalAdmissionConfig, konfluxciv1alpha1.ExternalAdmissionConfig]
-	admitterFactory  factory.AdmitterFactory
+	admitterFactory  *factory.Factory
 }
 
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=admissionchecks,verbs=get;list;watch;create;update;patch;delete
@@ -107,8 +107,8 @@ func (r *AdmissionCheckReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return r.updateAdmissionCheckStatus(ctx, ac, false, "failed to get ExternalAdmissionConfig: "+err.Error())
 	}
 
-	// Create or update Admitter using factory function
-	admitter, err := r.admitterFactory(externalConfig, log.WithValues("admissionCheck", req.Name), req.Name)
+	// Create or update Admitter using factory
+	admitter, err := r.admitterFactory.NewAdmitter(externalConfig, log.WithValues("admissionCheck", req.Name), req.Name)
 	if err != nil {
 		log.Error(err, "Failed to create admitter")
 		return r.updateAdmissionCheckStatus(ctx, ac, false, "failed to create admitter: "+err.Error())

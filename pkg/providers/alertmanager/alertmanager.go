@@ -31,24 +31,8 @@ import (
 
 	konfluxciv1alpha1 "github.com/konflux-ci/kueue-external-admission/api/konflux-ci.dev/v1alpha1"
 	"github.com/konflux-ci/kueue-external-admission/pkg/admission"
-	"github.com/konflux-ci/kueue-external-admission/pkg/admission/factory"
 	"github.com/konflux-ci/kueue-external-admission/pkg/admission/result"
 )
-
-func init() {
-	// Register this provider's factory with the watcher package
-	factory.RegisterProviderFactory("alertmanager",
-		func(
-			config *konfluxciv1alpha1.ExternalAdmissionConfig,
-			logger logr.Logger,
-			admissionCheckName string,
-		) (admission.Admitter, error) {
-			if config.Spec.Provider.AlertManager == nil {
-				return nil, fmt.Errorf("AlertManager provider config is nil")
-			}
-			return NewAdmitter(config.Spec.Provider.AlertManager, logger.WithName(admissionCheckName), admissionCheckName)
-		})
-}
 
 // admitter implements the watcher.admitter interface using AlertManager API
 type admitter struct {

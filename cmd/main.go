@@ -41,6 +41,7 @@ import (
 
 	"github.com/konflux-ci/kueue-external-admission/internal/controller"
 	"github.com/konflux-ci/kueue-external-admission/pkg/admission/enqueue"
+	"github.com/konflux-ci/kueue-external-admission/pkg/admission/factory"
 
 	konfluxcidevv1alpha1 "github.com/konflux-ci/kueue-external-admission/api/konflux-ci.dev/v1alpha1"
 	// +kubebuilder:scaffold:imports
@@ -50,7 +51,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 
 	// Import providers to register their factories
-	_ "github.com/konflux-ci/kueue-external-admission/pkg/providers/all"
 
 	admissionmanager "github.com/konflux-ci/kueue-external-admission/pkg/admission/manager"
 )
@@ -312,8 +312,9 @@ func main() {
 	}
 
 	// Setup AdmissionCheck reconciler
+	admitterFactory := factory.NewFactory()
 	admissionCheckReconciler, err := controller.NewAdmissionCheckReconciler(
-		mgr.GetClient(), mgr.GetScheme(), admissionManager)
+		mgr.GetClient(), mgr.GetScheme(), admissionManager, admitterFactory)
 	if err != nil {
 		setupLog.Error(err, "unable to create AdmissionCheck controller")
 		os.Exit(1)

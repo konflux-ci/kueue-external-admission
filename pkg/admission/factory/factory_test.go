@@ -19,28 +19,15 @@ package factory
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/go-logr/logr"
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	konfluxciv1alpha1 "github.com/konflux-ci/kueue-external-admission/api/konflux-ci.dev/v1alpha1"
-	"github.com/konflux-ci/kueue-external-admission/pkg/admission"
 	"github.com/konflux-ci/kueue-external-admission/pkg/admission/result"
 )
-
-func init() {
-	// Register a mock AlertManager factory for testing
-	RegisterProviderFactory("alertmanager",
-		func(
-			config *konfluxciv1alpha1.ExternalAdmissionConfig,
-			logger logr.Logger,
-			admissionCheckName string,
-		) (admission.Admitter, error) {
-			// Return a simple mock admitter for testing
-			return &mockTestAdmitter{}, nil
-		})
-}
 
 // mockTestAdmitter is a simple mock for factory testing
 type mockTestAdmitter struct{}
@@ -54,8 +41,15 @@ func (m *mockTestAdmitter) Sync(ctx context.Context, asyncAdmissionResults chan<
 	return nil
 }
 
-func TestNewAdmitter_AlertManagerProvider(t *testing.T) {
+func TestNewFactory(t *testing.T) {
 	RegisterTestingT(t)
+	factory := NewFactory()
+	Expect(factory).ToNot(BeNil(), "Expected non-nil factory")
+}
+
+func TestFactory_NewAdmitter_AlertManagerProvider(t *testing.T) {
+	RegisterTestingT(t)
+	factory := NewFactory()
 	config := &konfluxciv1alpha1.ExternalAdmissionConfig{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "test-config",
@@ -71,12 +65,13 @@ func TestNewAdmitter_AlertManagerProvider(t *testing.T) {
 							AlertNames: []string{"test-alert"},
 						},
 					},
+					CheckTTL: &metav1.Duration{Duration: 30 * time.Second},
 				},
 			},
 		},
 	}
 
-	admitter, err := NewAdmitter(config, logr.Discard(), "test-admission-check")
+	admitter, err := factory.NewAdmitter(config, logr.Discard(), "test-admission-check")
 	Expect(err).ToNot(HaveOccurred(), "Expected no error creating AlertManager admitter")
 	Expect(admitter).ToNot(BeNil(), "Expected non-nil admitter")
 
@@ -84,8 +79,9 @@ func TestNewAdmitter_AlertManagerProvider(t *testing.T) {
 	_ = admitter
 }
 
-func TestNewAdmitter_NoProviderConfigured(t *testing.T) {
+func TestFactory_NewAdmitter_NoProviderConfigured(t *testing.T) {
 	RegisterTestingT(t)
+	factory := NewFactory()
 	config := &konfluxciv1alpha1.ExternalAdmissionConfig{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "test-config",
@@ -97,7 +93,7 @@ func TestNewAdmitter_NoProviderConfigured(t *testing.T) {
 		},
 	}
 
-	admitter, err := NewAdmitter(config, logr.Discard(), "test-admission-check")
+	admitter, err := factory.NewAdmitter(config, logr.Discard(), "test-admission-check")
 	Expect(err).To(HaveOccurred(), "Expected error when no provider is configured")
 	Expect(admitter).To(BeNil(), "Expected nil admitter when error occurs")
 
@@ -105,9 +101,10 @@ func TestNewAdmitter_NoProviderConfigured(t *testing.T) {
 	Expect(err.Error()).To(Equal(expectedErrMsg))
 }
 
-func TestNewAdmitter_NilConfig(t *testing.T) {
+func TestFactory_NewAdmitter_NilConfig(t *testing.T) {
 	RegisterTestingT(t)
-	admitter, err := NewAdmitter(nil, logr.Discard(), "test-admission-check")
+	factory := NewFactory()
+	admitter, err := factory.NewAdmitter(nil, logr.Discard(), "test-admission-check")
 	Expect(err).To(HaveOccurred(), "Expected error when config is nil")
 	Expect(admitter).To(BeNil(), "Expected nil admitter when error occurs")
 

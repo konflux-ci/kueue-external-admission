@@ -23,21 +23,29 @@ import (
 
 	konfluxciv1alpha1 "github.com/konflux-ci/kueue-external-admission/api/konflux-ci.dev/v1alpha1"
 	"github.com/konflux-ci/kueue-external-admission/pkg/admission"
+	"github.com/konflux-ci/kueue-external-admission/pkg/providers/alertmanager"
 )
 
-// AdmitterFactory is a function type for creating admitters
-type AdmitterFactory func(*konfluxciv1alpha1.ExternalAdmissionConfig, logr.Logger, string) (admission.Admitter, error)
-
-// providerFactories holds the registered provider factories
-var providerFactories = make(map[string]AdmitterFactory)
-
-// RegisterProviderFactory registers a factory function for a provider type
-func RegisterProviderFactory(providerType string, factory AdmitterFactory) {
-	providerFactories[providerType] = factory
+// Factory is a struct-based factory for creating admitters based on provider configuration.
+// This provides a simple, straightforward approach to instantiate providers without
+// implicit registration or complex patterns.
+type Factory struct {
+	// Future configuration options can be added here, such as:
+	// - Default timeouts
+	// - Common client configurations
+	// - Metrics collectors
+	// - etc.
 }
 
-// NewAdmitter creates an Admitter based on the provider configuration in ExternalAdmissionConfig
-func NewAdmitter(
+// NewFactory creates a new Factory instance.
+func NewFactory() *Factory {
+	return &Factory{}
+}
+
+// NewAdmitter creates an Admitter based on the provider configuration in ExternalAdmissionConfig.
+// This is a simple, straightforward factory that directly instantiates providers without
+// implicit registration or complex patterns.
+func (f *Factory) NewAdmitter(
 	config *konfluxciv1alpha1.ExternalAdmissionConfig,
 	logger logr.Logger,
 	admissionCheckName string,
@@ -48,15 +56,31 @@ func NewAdmitter(
 
 	provider := config.Spec.Provider
 
-	// Check which provider is configured and use registered factory
+	// Directly check which provider is configured and create the appropriate admitter
 	switch {
 	case provider.AlertManager != nil:
-		if factory, exists := providerFactories["alertmanager"]; exists {
-			return factory(config, logger.WithName("provider.alertmanager"), admissionCheckName)
-		}
-		return nil, fmt.Errorf("alertmanager provider factory not registered")
+		return alertmanager.NewAdmitter(
+			provider.AlertManager,
+			logger.WithName("provider.alertmanager"),
+			admissionCheckName,
+		)
 	default:
-		return nil, fmt.Errorf("no supported provider configured in ExternalAdmissionConfig %s",
-			config.Name)
+		return nil, fmt.Errorf("no supported provider configured in ExternalAdmissionConfig %s", config.Name)
 	}
+
+	// Future providers can be added here as new case statements, for example:
+	// case provider.Webhook != nil:
+	//     return webhook.NewAdmitter(
+	//         provider.Webhook,
+	//         logger.WithName("provider.webhook"),
+	//         admissionCheckName,
+	//         // webhook-specific arguments can be added here
+	//     )
+	// case provider.CustomScript != nil:
+	//     return customscript.NewAdmitter(
+	//         provider.CustomScript,
+	//         logger.WithName("provider.customscript"),
+	//         admissionCheckName,
+	//         // custom script-specific arguments can be added here
+	//     )
 }
