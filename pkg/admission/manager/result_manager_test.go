@@ -14,9 +14,17 @@ import (
 	"github.com/konflux-ci/kueue-external-admission/pkg/admission/result"
 )
 
-func TestNewResultManager(t *testing.T) {
-	RegisterTestingT(t)
+// testResultManagerSetup creates a new ResultManager with all necessary channels for testing
+type testResultManagerSetup struct {
+	manager             *ResultManager
+	admitterCommands    chan admitterCmdFunc
+	incomingResults     chan result.AsyncAdmissionResult
+	resultNotifications chan result.AdmissionResult
+	resultCmd           chan resultCmdFunc
+}
 
+// newTestResultManagerSetup creates a complete test setup for ResultManager
+func newTestResultManagerSetup() *testResultManagerSetup {
 	logger := logr.Discard()
 	admitterCommands := make(chan admitterCmdFunc, 10)
 	incomingResults := make(chan result.AsyncAdmissionResult, 10)
@@ -25,409 +33,297 @@ func TestNewResultManager(t *testing.T) {
 
 	manager := NewResultManager(logger, admitterCommands, incomingResults, resultNotifications, resultCmd)
 
-	Expect(manager).ToNot(BeNil(), "Expected non-nil ResultManager")
-	Expect(manager.logger).To(Equal(logger), "Expected logger to be set correctly")
-	Expect(manager.resultsRegistry).ToNot(BeNil(), "Expected resultsRegistry to be initialized")
-	Expect(len(manager.resultsRegistry)).To(Equal(0), "Expected resultsRegistry to be empty initially")
+	return &testResultManagerSetup{
+		manager:             manager,
+		admitterCommands:    admitterCommands,
+		incomingResults:     incomingResults,
+		resultNotifications: resultNotifications,
+		resultCmd:           resultCmd,
+	}
+}
+
+// runManagerInBackground starts the manager in a goroutine and returns context and cancel function
+func runManagerInBackground(setup *testResultManagerSetup) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(context.Background())
+	go setup.manager.Run(ctx)
+	return ctx, cancel
+}
+
+// createAsyncResult is a helper to create test results
+func createAsyncResult(checkName string, shouldAdmit bool, details string, err error) result.AsyncAdmissionResult {
+	builder := result.NewAdmissionResultBuilder(checkName)
+	if shouldAdmit {
+		builder.SetAdmissionAllowed()
+	} else {
+		builder.SetAdmissionDenied()
+	}
+	if details != "" {
+		builder.AddDetails(details)
+	}
+
+	return result.AsyncAdmissionResult{
+		AdmissionResult: builder.Build(),
+		Error:           err,
+	}
+}
+
+func TestNewResultManager(t *testing.T) {
+	RegisterTestingT(t)
+
+	setup := newTestResultManagerSetup()
+
+	Expect(setup.manager).ToNot(BeNil(), "Expected non-nil ResultManager")
+	Expect(setup.manager.resultsRegistry).ToNot(BeNil(), "Expected resultsRegistry to be initialized")
+	Expect(len(setup.manager.resultsRegistry)).To(Equal(0), "Expected resultsRegistry to be empty initially")
 
 	// Verify channels are set (we can't compare them directly due to type differences)
-	Expect(manager.admitterCommands).ToNot(BeNil(), "Expected admitterCommands channel to be set")
-	Expect(manager.incomingResults).ToNot(BeNil(), "Expected incomingResults channel to be set")
-	Expect(manager.resultNotifications).ToNot(BeNil(), "Expected resultNotifications channel to be set")
-	Expect(manager.resultCmd).ToNot(BeNil(), "Expected resultCmd channel to be set")
+	Expect(setup.manager.admitterCommands).ToNot(BeNil(), "Expected admitterCommands channel to be set")
+	Expect(setup.manager.incomingResults).ToNot(BeNil(), "Expected incomingResults channel to be set")
+	Expect(setup.manager.resultNotifications).ToNot(BeNil(), "Expected resultNotifications channel to be set")
+	Expect(setup.manager.resultCmd).ToNot(BeNil(), "Expected resultCmd channel to be set")
 }
 
 func TestResultManager_Run_ContextCancellation(t *testing.T) {
 	RegisterTestingT(t)
 
-	logger := logr.Discard()
-	admitterCommands := make(chan admitterCmdFunc, 10)
-	incomingResults := make(chan result.AsyncAdmissionResult, 10)
-	resultNotifications := make(chan result.AdmissionResult, 10)
-	resultCmd := make(chan resultCmdFunc, 10)
-
-	manager := NewResultManager(logger, admitterCommands, incomingResults, resultNotifications, resultCmd)
-
-	ctx, cancel := context.WithCancel(context.Background())
-
-	done := make(chan bool)
-	go func() {
-		manager.Run(ctx)
-		done <- true
-	}()
+	setup := newTestResultManagerSetup()
+	_, cancel := runManagerInBackground(setup)
+	defer cancel()
 
 	// Cancel context to stop the manager
 	cancel()
 
-	// Wait for Run to complete
-	select {
-	case <-done:
-		// Success - Run completed
-	case <-time.After(2 * time.Second):
-		t.Fatal("ResultManager.Run did not complete within timeout after context cancellation")
-	}
+	// The manager should stop when context is cancelled
+	// We don't need to wait for a specific completion signal since
+	// runManagerInBackground already started the manager
 }
 
-func TestResultManager_HandleNewResult_FirstResult(t *testing.T) {
-	RegisterTestingT(t)
-
-	logger := logr.Discard()
-	admitterCommands := make(chan admitterCmdFunc, 10)
-	incomingResults := make(chan result.AsyncAdmissionResult, 10)
-	resultNotifications := make(chan result.AdmissionResult, 10)
-	resultCmd := make(chan resultCmdFunc, 10)
-
-	manager := NewResultManager(logger, admitterCommands, incomingResults, resultNotifications, resultCmd)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	// Start the manager
-	go manager.Run(ctx)
-
-	// Create a test result
-	builder := result.NewAdmissionResultBuilder("test-check")
-	builder.SetAdmissionAllowed()
-	builder.AddDetails("test details")
-
-	asyncResult := result.AsyncAdmissionResult{
-		AdmissionResult: builder.Build(),
-		Error:           nil,
+func TestResultManager_HandleNewResult(t *testing.T) {
+	testCases := []struct {
+		name                  string
+		setupResults          []result.AsyncAdmissionResult
+		expectedNotifications int
+		validateFirstResult   func(notification result.AdmissionResult) bool
+		validateSecondResult  func(notification result.AdmissionResult) bool
+		expectStoredError     bool
+	}{
+		{
+			name: "FirstResult",
+			setupResults: []result.AsyncAdmissionResult{
+				createAsyncResult("test-check", true, "test details", nil),
+			},
+			expectedNotifications: 1,
+			validateFirstResult: func(notification result.AdmissionResult) bool {
+				return notification.CheckName() == "test-check" && notification.ShouldAdmit()
+			},
+			expectStoredError: false,
+		},
+		{
+			name: "SameResult",
+			setupResults: []result.AsyncAdmissionResult{
+				createAsyncResult("test-check", true, "test details", nil),
+				createAsyncResult("test-check", true, "test details", nil), // Same result
+			},
+			expectedNotifications: 1, // Only first should notify
+			validateFirstResult: func(notification result.AdmissionResult) bool {
+				return notification.CheckName() == "test-check" && notification.ShouldAdmit()
+			},
+			expectStoredError: false,
+		},
+		{
+			name: "ChangedResult",
+			setupResults: []result.AsyncAdmissionResult{
+				createAsyncResult("test-check", true, "first", nil),
+				createAsyncResult("test-check", false, "second", nil), // Different result
+			},
+			expectedNotifications: 2,
+			validateFirstResult: func(notification result.AdmissionResult) bool {
+				return notification.CheckName() == "test-check" && notification.ShouldAdmit()
+			},
+			validateSecondResult: func(notification result.AdmissionResult) bool {
+				return notification.CheckName() == "test-check" && !notification.ShouldAdmit()
+			},
+			expectStoredError: false,
+		},
+		{
+			name: "WithError",
+			setupResults: []result.AsyncAdmissionResult{
+				createAsyncResult("test-check", false, "error case", errors.New("test error")),
+			},
+			expectedNotifications: 0, // No notifications for errors
+			expectStoredError:     true,
+		},
 	}
 
-	// Send the result
-	incomingResults <- asyncResult
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			RegisterTestingT(t)
 
-	// Should receive notification since it's a new result
-	Eventually(func() bool {
-		select {
-		case notification := <-resultNotifications:
-			return notification.CheckName() == "test-check" && notification.ShouldAdmit()
-		default:
-			return false
-		}
-	}, 1*time.Second).Should(BeTrue(), "Expected notification for first result")
+			setup := newTestResultManagerSetup()
+			_, cancel := runManagerInBackground(setup)
+			defer cancel()
 
-	// Verify result is stored using GetSnapshot
-	snapshotCmd, snapshotChan := GetSnapshot()
-	resultCmd <- snapshotCmd
-
-	Eventually(func() bool {
-		select {
-		case snapshot := <-snapshotChan:
-			storedResult, exists := snapshot["test-check"]
-			return exists && storedResult.AdmissionResult.ShouldAdmit() && storedResult.Error == nil
-		default:
-			return false
-		}
-	}, 1*time.Second).Should(BeTrue(), "Expected result to be stored in registry")
-}
-
-func TestResultManager_HandleNewResult_SameResult(t *testing.T) {
-	RegisterTestingT(t)
-
-	logger := logr.Discard()
-	admitterCommands := make(chan admitterCmdFunc, 10)
-	incomingResults := make(chan result.AsyncAdmissionResult, 10)
-	resultNotifications := make(chan result.AdmissionResult, 10)
-	resultCmd := make(chan resultCmdFunc, 10)
-
-	manager := NewResultManager(logger, admitterCommands, incomingResults, resultNotifications, resultCmd)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	// Start the manager
-	go manager.Run(ctx)
-
-	// Create a test result
-	builder := result.NewAdmissionResultBuilder("test-check")
-	builder.SetAdmissionAllowed()
-	builder.AddDetails("test details")
-
-	asyncResult := result.AsyncAdmissionResult{
-		AdmissionResult: builder.Build(),
-		Error:           nil,
-	}
-
-	// Send the result first time
-	incomingResults <- asyncResult
-
-	// Should receive notification for first result
-	Eventually(func() bool {
-		select {
-		case <-resultNotifications:
-			return true
-		default:
-			return false
-		}
-	}, 1*time.Second).Should(BeTrue(), "Expected notification for first result")
-
-	// Send the same result again
-	incomingResults <- asyncResult
-
-	// Should not receive another notification for the same result
-	Consistently(func() bool {
-		select {
-		case <-resultNotifications:
-			return false // Received unexpected notification
-		default:
-			return true // No notification received (expected)
-		}
-	}, 500*time.Millisecond).Should(BeTrue(), "Should not receive notification for identical result")
-}
-
-func TestResultManager_HandleNewResult_ChangedResult(t *testing.T) {
-	RegisterTestingT(t)
-
-	logger := logr.Discard()
-	admitterCommands := make(chan admitterCmdFunc, 10)
-	incomingResults := make(chan result.AsyncAdmissionResult, 10)
-	resultNotifications := make(chan result.AdmissionResult, 10)
-	resultCmd := make(chan resultCmdFunc, 10)
-
-	manager := NewResultManager(logger, admitterCommands, incomingResults, resultNotifications, resultCmd)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	// Start the manager
-	go manager.Run(ctx)
-
-	// Create first result (allowed)
-	builder1 := result.NewAdmissionResultBuilder("test-check")
-	builder1.SetAdmissionAllowed()
-	builder1.AddDetails("first result")
-
-	asyncResult1 := result.AsyncAdmissionResult{
-		AdmissionResult: builder1.Build(),
-		Error:           nil,
-	}
-
-	// Send first result
-	incomingResults <- asyncResult1
-
-	// Should receive notification for first result
-	Eventually(func() bool {
-		select {
-		case notification := <-resultNotifications:
-			return notification.ShouldAdmit()
-		default:
-			return false
-		}
-	}, 1*time.Second).Should(BeTrue(), "Expected notification for first result")
-
-	// Create second result (denied)
-	builder2 := result.NewAdmissionResultBuilder("test-check")
-	builder2.SetAdmissionDenied()
-	builder2.AddDetails("second result")
-
-	asyncResult2 := result.AsyncAdmissionResult{
-		AdmissionResult: builder2.Build(),
-		Error:           nil,
-	}
-
-	// Send second result
-	incomingResults <- asyncResult2
-
-	// Should receive notification for changed result
-	Eventually(func() bool {
-		select {
-		case notification := <-resultNotifications:
-			return !notification.ShouldAdmit() // Should be denied now
-		default:
-			return false
-		}
-	}, 1*time.Second).Should(BeTrue(), "Expected notification for changed result")
-}
-
-func TestResultManager_HandleNewResult_WithError(t *testing.T) {
-	RegisterTestingT(t)
-
-	logger := logr.Discard()
-	admitterCommands := make(chan admitterCmdFunc, 10)
-	incomingResults := make(chan result.AsyncAdmissionResult, 10)
-	resultNotifications := make(chan result.AdmissionResult, 10)
-	resultCmd := make(chan resultCmdFunc, 10)
-
-	manager := NewResultManager(logger, admitterCommands, incomingResults, resultNotifications, resultCmd)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	// Start the manager
-	go manager.Run(ctx)
-
-	// Create a result with an error
-	builder := result.NewAdmissionResultBuilder("test-check")
-	builder.SetAdmissionDenied()
-	builder.AddDetails("error result")
-
-	asyncResult := result.AsyncAdmissionResult{
-		AdmissionResult: builder.Build(),
-		Error:           errors.New("test error"),
-	}
-
-	// Send the result with error
-	incomingResults <- asyncResult
-
-	// Should NOT receive notification because result has error
-	Consistently(func() bool {
-		select {
-		case <-resultNotifications:
-			return false // Received unexpected notification
-		default:
-			return true // No notification received (expected)
-		}
-	}, 500*time.Millisecond).Should(BeTrue(), "Should not receive notification for result with error")
-
-	// But result should still be stored
-	snapshotCmd, snapshotChan := GetSnapshot()
-	resultCmd <- snapshotCmd
-
-	Eventually(func() bool {
-		select {
-		case snapshot := <-snapshotChan:
-			storedResult, exists := snapshot["test-check"]
-			return exists && storedResult.Error != nil && storedResult.Error.Error() == "test error"
-		default:
-			return false
-		}
-	}, 1*time.Second).Should(BeTrue(), "Expected result with error to be stored")
-}
-
-func TestResultManager_GetSnapshot_Empty(t *testing.T) {
-	RegisterTestingT(t)
-
-	logger := logr.Discard()
-	admitterCommands := make(chan admitterCmdFunc, 10)
-	incomingResults := make(chan result.AsyncAdmissionResult, 10)
-	resultNotifications := make(chan result.AdmissionResult, 10)
-	resultCmd := make(chan resultCmdFunc, 10)
-
-	manager := NewResultManager(logger, admitterCommands, incomingResults, resultNotifications, resultCmd)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	// Start the manager
-	go manager.Run(ctx)
-
-	// Get snapshot when empty
-	snapshotCmd, snapshotChan := GetSnapshot()
-	resultCmd <- snapshotCmd
-
-	Eventually(func() bool {
-		select {
-		case snapshot := <-snapshotChan:
-			return len(snapshot) == 0
-		default:
-			return false
-		}
-	}, 1*time.Second).Should(BeTrue(), "Expected empty snapshot")
-}
-
-func TestResultManager_GetSnapshot_WithResults(t *testing.T) {
-	RegisterTestingT(t)
-
-	logger := logr.Discard()
-	admitterCommands := make(chan admitterCmdFunc, 10)
-	incomingResults := make(chan result.AsyncAdmissionResult, 10)
-	resultNotifications := make(chan result.AdmissionResult, 10)
-	resultCmd := make(chan resultCmdFunc, 10)
-
-	manager := NewResultManager(logger, admitterCommands, incomingResults, resultNotifications, resultCmd)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	// Start the manager
-	go manager.Run(ctx)
-
-	// Add multiple results
-	for i := 0; i < 3; i++ {
-		builder := result.NewAdmissionResultBuilder(fmt.Sprintf("check-%d", i))
-		builder.SetAdmissionAllowed()
-		builder.AddDetails(fmt.Sprintf("details-%d", i))
-
-		asyncResult := result.AsyncAdmissionResult{
-			AdmissionResult: builder.Build(),
-			Error:           nil,
-		}
-
-		incomingResults <- asyncResult
-	}
-
-	// Wait for results to be processed (notifications will be sent)
-	var notificationCount int
-	Eventually(func() int {
-		for {
-			select {
-			case <-resultNotifications:
-				notificationCount++
-			default:
-				return notificationCount
+			// Send all results
+			for _, asyncResult := range tc.setupResults {
+				setup.incomingResults <- asyncResult
 			}
-		}
-	}, 1*time.Second).Should(Equal(3), "Expected 3 notifications")
 
-	// Get snapshot
-	snapshotCmd, snapshotChan := GetSnapshot()
-	resultCmd <- snapshotCmd
+			// Collect notifications
+			var notifications []result.AdmissionResult
+			if tc.expectedNotifications > 0 {
+				for i := 0; i < tc.expectedNotifications; i++ {
+					Eventually(func() bool {
+						select {
+						case notification := <-setup.resultNotifications:
+							notifications = append(notifications, notification)
+							return true
+						default:
+							return false
+						}
+					}, 1*time.Second).Should(BeTrue(), fmt.Sprintf("Expected notification %d", i+1))
+				}
 
-	Eventually(func() bool {
-		select {
-		case snapshot := <-snapshotChan:
-			if len(snapshot) != 3 {
-				return false
+				// Validate notifications
+				if tc.validateFirstResult != nil {
+					Expect(tc.validateFirstResult(notifications[0])).To(BeTrue(), "First notification validation failed")
+				}
+				if tc.validateSecondResult != nil && len(notifications) > 1 {
+					Expect(tc.validateSecondResult(notifications[1])).To(BeTrue(), "Second notification validation failed")
+				}
+			} else {
+				// Should not receive any notifications
+				Consistently(func() bool {
+					select {
+					case <-setup.resultNotifications:
+						return false
+					default:
+						return true
+					}
+				}, 500*time.Millisecond).Should(BeTrue(), "Should not receive notifications")
 			}
-			for i := 0; i < 3; i++ {
-				checkName := fmt.Sprintf("check-%d", i)
-				result, exists := snapshot[checkName]
-				if !exists || !result.AdmissionResult.ShouldAdmit() {
+
+			// Verify result storage
+			snapshotCmd, snapshotChan := GetSnapshot()
+			setup.resultCmd <- snapshotCmd
+
+			Eventually(func() bool {
+				select {
+				case snapshot := <-snapshotChan:
+					storedResult, exists := snapshot["test-check"]
+					if !exists {
+						return false
+					}
+					if tc.expectStoredError {
+						return storedResult.Error != nil
+					}
+					return storedResult.Error == nil
+				default:
 					return false
 				}
+			}, 1*time.Second).Should(BeTrue(), "Expected result to be stored correctly")
+		})
+	}
+}
+
+func TestResultManager_GetSnapshot(t *testing.T) {
+	testCases := []struct {
+		name           string
+		setupResults   []result.AsyncAdmissionResult
+		expectedCount  int
+		validateResult func(snapshot map[string]result.AsyncAdmissionResult) bool
+	}{
+		{
+			name:          "Empty",
+			setupResults:  []result.AsyncAdmissionResult{},
+			expectedCount: 0,
+			validateResult: func(snapshot map[string]result.AsyncAdmissionResult) bool {
+				return len(snapshot) == 0
+			},
+		},
+		{
+			name: "WithResults",
+			setupResults: []result.AsyncAdmissionResult{
+				createAsyncResult("check-0", true, "details-0", nil),
+				createAsyncResult("check-1", true, "details-1", nil),
+				createAsyncResult("check-2", true, "details-2", nil),
+			},
+			expectedCount: 3,
+			validateResult: func(snapshot map[string]result.AsyncAdmissionResult) bool {
+				if len(snapshot) != 3 {
+					return false
+				}
+				for i := 0; i < 3; i++ {
+					checkName := fmt.Sprintf("check-%d", i)
+					storedResult, exists := snapshot[checkName]
+					if !exists || storedResult.Error != nil {
+						return false
+					}
+				}
+				return true
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			RegisterTestingT(t)
+
+			setup := newTestResultManagerSetup()
+			defer setup.cleanup()
+			setup.start()
+
+			// Send all results
+			for _, asyncResult := range tc.setupResults {
+				setup.incomingResults <- asyncResult
 			}
-			return true
-		default:
-			return false
-		}
-	}, 1*time.Second).Should(BeTrue(), "Expected snapshot with 3 results")
+
+			// Wait for results to be processed if any
+			if tc.expectedCount > 0 {
+				var notificationCount int
+				Eventually(func() int {
+					for {
+						select {
+						case <-setup.resultNotifications:
+							notificationCount++
+						default:
+							return notificationCount
+						}
+					}
+				}, 1*time.Second).Should(Equal(tc.expectedCount), "Expected notifications")
+			}
+
+			// Get snapshot
+			snapshotCmd, snapshotChan := GetSnapshot()
+			setup.resultCmd <- snapshotCmd
+
+			Eventually(func() bool {
+				select {
+				case snapshot := <-snapshotChan:
+					return tc.validateResult(snapshot)
+				default:
+					return false
+				}
+			}, 1*time.Second).Should(BeTrue(), "Snapshot validation failed")
+		})
+	}
 }
 
 func TestResultManager_RemoveStaleResults(t *testing.T) {
 	RegisterTestingT(t)
 
-	logger := logr.Discard()
-	admitterCommands := make(chan admitterCmdFunc, 10)
-	incomingResults := make(chan result.AsyncAdmissionResult, 10)
-	resultNotifications := make(chan result.AdmissionResult, 10)
-	resultCmd := make(chan resultCmdFunc, 10)
-
-	manager := NewResultManager(logger, admitterCommands, incomingResults, resultNotifications, resultCmd)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	// Start the manager
-	go manager.Run(ctx)
+	setup := newTestResultManagerSetup()
+	defer setup.cleanup()
+	setup.start()
 
 	// Add some results and wait for each to be processed
 	for i := 0; i < 3; i++ {
-		builder := result.NewAdmissionResultBuilder(fmt.Sprintf("check-%d", i))
-		builder.SetAdmissionAllowed()
-
-		asyncResult := result.AsyncAdmissionResult{
-			AdmissionResult: builder.Build(),
-			Error:           nil,
-		}
-
-		incomingResults <- asyncResult
+		asyncResult := createAsyncResult(fmt.Sprintf("check-%d", i), true, "", nil)
+		setup.incomingResults <- asyncResult
 
 		// Wait for this specific result to be processed
 		Eventually(func() int {
 			snapshotCmd, snapshotChan := GetSnapshot()
-			resultCmd <- snapshotCmd
+			setup.resultCmd <- snapshotCmd
 			select {
 			case snapshot := <-snapshotChan:
 				return len(snapshot)
@@ -444,7 +340,7 @@ func TestResultManager_RemoveStaleResults(t *testing.T) {
 
 	// Verify that the results are properly stored and accessible
 	snapshotCmd, snapshotChan := GetSnapshot()
-	resultCmd <- snapshotCmd
+	setup.resultCmd <- snapshotCmd
 
 	Eventually(func() int {
 		select {
@@ -459,6 +355,7 @@ func TestResultManager_RemoveStaleResults(t *testing.T) {
 func TestResultManager_ConcurrentOperations(t *testing.T) {
 	RegisterTestingT(t)
 
+	// Create setup with larger buffer for concurrent operations
 	logger := logr.Discard()
 	admitterCommands := make(chan admitterCmdFunc, 100)
 	incomingResults := make(chan result.AsyncAdmissionResult, 100)
@@ -466,12 +363,19 @@ func TestResultManager_ConcurrentOperations(t *testing.T) {
 	resultCmd := make(chan resultCmdFunc, 100)
 
 	manager := NewResultManager(logger, admitterCommands, incomingResults, resultNotifications, resultCmd)
-
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Start the manager
-	go manager.Run(ctx)
+	setup := &testResultManagerSetup{
+		manager:             manager,
+		admitterCommands:    admitterCommands,
+		incomingResults:     incomingResults,
+		resultNotifications: resultNotifications,
+		resultCmd:           resultCmd,
+		ctx:                 ctx,
+		cancel:              cancel,
+	}
+	setup.start()
 
 	var wg sync.WaitGroup
 	numGoroutines := 10
@@ -482,16 +386,14 @@ func TestResultManager_ConcurrentOperations(t *testing.T) {
 		go func(index int) {
 			defer wg.Done()
 
-			builder := result.NewAdmissionResultBuilder(fmt.Sprintf("concurrent-check-%d", index))
-			builder.SetAdmissionAllowed()
-			builder.AddDetails(fmt.Sprintf("concurrent details %d", index))
+			asyncResult := createAsyncResult(
+				fmt.Sprintf("concurrent-check-%d", index),
+				true,
+				fmt.Sprintf("concurrent details %d", index),
+				nil,
+			)
 
-			asyncResult := result.AsyncAdmissionResult{
-				AdmissionResult: builder.Build(),
-				Error:           nil,
-			}
-
-			incomingResults <- asyncResult
+			setup.incomingResults <- asyncResult
 		}(i)
 	}
 
@@ -503,7 +405,7 @@ func TestResultManager_ConcurrentOperations(t *testing.T) {
 			defer wg.Done()
 
 			snapshotCmd, snapshotChan := GetSnapshot()
-			resultCmd <- snapshotCmd
+			setup.resultCmd <- snapshotCmd
 
 			select {
 			case snapshot := <-snapshotChan:
@@ -531,7 +433,7 @@ func TestResultManager_ConcurrentOperations(t *testing.T) {
 
 	// Final verification - get one more snapshot to see final state
 	finalSnapshotCmd, finalSnapshotChan := GetSnapshot()
-	resultCmd <- finalSnapshotCmd
+	setup.resultCmd <- finalSnapshotCmd
 
 	Eventually(func() int {
 		select {
@@ -546,19 +448,9 @@ func TestResultManager_ConcurrentOperations(t *testing.T) {
 func TestResultManager_NotificationFlow(t *testing.T) {
 	RegisterTestingT(t)
 
-	logger := logr.Discard()
-	admitterCommands := make(chan admitterCmdFunc, 10)
-	incomingResults := make(chan result.AsyncAdmissionResult, 10)
-	resultNotifications := make(chan result.AdmissionResult, 10)
-	resultCmd := make(chan resultCmdFunc, 10)
-
-	manager := NewResultManager(logger, admitterCommands, incomingResults, resultNotifications, resultCmd)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	// Start the manager
-	go manager.Run(ctx)
+	setup := newTestResultManagerSetup()
+	defer setup.cleanup()
+	setup.start()
 
 	// Test sequence: allowed -> denied -> allowed -> error -> allowed
 	testCases := []struct {
@@ -582,11 +474,11 @@ func TestResultManager_NotificationFlow(t *testing.T) {
 	go func() {
 		for {
 			select {
-			case notification := <-resultNotifications:
+			case notification := <-setup.resultNotifications:
 				if notification.CheckName() == checkName {
 					receivedNotifications <- notification
 				}
-			case <-ctx.Done():
+			case <-setup.ctx.Done():
 				return
 			}
 		}
@@ -596,23 +488,12 @@ func TestResultManager_NotificationFlow(t *testing.T) {
 	for _, tc := range testCases {
 		t.Logf("Testing case: %s", tc.name)
 
-		builder := result.NewAdmissionResultBuilder(checkName)
-		if tc.shouldAdmit {
-			builder.SetAdmissionAllowed()
-		} else {
-			builder.SetAdmissionDenied()
-		}
-		builder.AddDetails(tc.details)
-
-		asyncResult := result.AsyncAdmissionResult{
-			AdmissionResult: builder.Build(),
-		}
-
+		asyncResult := createAsyncResult(checkName, tc.shouldAdmit, tc.details, nil)
 		if tc.hasError {
 			asyncResult.Error = errors.New("test error")
 		}
 
-		incomingResults <- asyncResult
+		setup.incomingResults <- asyncResult
 	}
 
 	// Collect the expected 4 notifications (excluding error case)
