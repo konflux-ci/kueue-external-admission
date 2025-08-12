@@ -127,7 +127,6 @@ func TestAdmissionService_ConcurrentAccess(t *testing.T) {
 			err := service.SetAdmitter(ctx, "concurrent-test", testAdmitter)
 			Expect(err).ToNot(HaveOccurred(), "Failed to set admitter")
 			t.Log("SetAdmitter")
-			time.Sleep(3 * time.Second)
 			// Test retrieving admitter
 			t.Log("trying to retrieve results")
 			Eventually(func(g Gomega) {
@@ -163,9 +162,6 @@ func TestAdmissionService_RetrieveMultipleAdmitters(t *testing.T) {
 		_ = service.Start(ctx)
 	}()
 
-	// Give the service a moment to start
-	time.Sleep(100 * time.Millisecond)
-
 	// Create multiple admitters
 	admitter1 := newMockAdmitter("key1", true, []string{"detail1"})
 	admitter2 := newMockAdmitter("key2", false, []string{"detail2"})
@@ -173,9 +169,6 @@ func TestAdmissionService_RetrieveMultipleAdmitters(t *testing.T) {
 	// Store admitters
 	service.SetAdmitter(ctx, "key1", admitter1)
 	service.SetAdmitter(ctx, "key2", admitter2)
-
-	// Give some time for the admitters to be set
-	time.Sleep(200 * time.Millisecond)
 
 	// Retrieve both
 	cmd, resultChan := GetSnapshot()

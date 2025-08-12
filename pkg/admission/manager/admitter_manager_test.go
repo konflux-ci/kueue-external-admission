@@ -404,7 +404,6 @@ func TestSetAdmitter_SyncError_Retry(t *testing.T) {
 
 	// For error case, the sync method returns error immediately, so no result is sent
 	// We just verify the admitter was added and the sync was attempted (no results expected)
-	time.Sleep(100 * time.Millisecond) // Give time for sync to be attempted
 
 	// Note: The retry mechanism uses a 15-second delay, so we can't easily test the retry in a unit test
 	// but we can verify the admitter was added and sync was attempted
