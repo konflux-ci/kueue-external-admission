@@ -474,7 +474,7 @@ func TestResultManager_NotificationFlow(t *testing.T) {
 	RegisterTestingT(t)
 
 	setup := newTestResultManagerSetup()
-	ctx, cancel := runManagerInBackground(setup)
+	_, cancel := runManagerInBackground(setup)
 	defer cancel()
 
 	// Test sequence: allowed -> denied -> allowed -> error -> allowed
@@ -493,21 +493,6 @@ func TestResultManager_NotificationFlow(t *testing.T) {
 	}
 
 	checkName := "notification-test"
-	receivedNotifications := make(chan result.AdmissionResult, 10)
-
-	// Start a goroutine to collect notifications
-	go func() {
-		for {
-			select {
-			case notification := <-setup.resultNotifications:
-				if notification.CheckName() == checkName {
-					receivedNotifications <- notification
-				}
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
 
 	// Send test cases
 	for _, tc := range testCases {
@@ -526,7 +511,7 @@ func TestResultManager_NotificationFlow(t *testing.T) {
 	for i := 0; i < 4; i++ {
 		Eventually(func() bool {
 			select {
-			case notification := <-receivedNotifications:
+			case notification := <-setup.resultNotifications:
 				notifications = append(notifications, notification)
 				return true
 			default:
