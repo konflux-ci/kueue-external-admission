@@ -87,15 +87,43 @@ func TestResultManager_Run_ContextCancellation(t *testing.T) {
 	RegisterTestingT(t)
 
 	setup := newTestResultManagerSetup()
-	_, cancel := runManagerInBackground(setup)
+
+	// Start the manager with a context we can cancel
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	done := make(chan bool, 1)
+	go func() {
+		setup.manager.Run(ctx)
+		done <- true
+	}()
+
+	// Give the manager a moment to start
+	Eventually(func() bool {
+		// Send a snapshot command to verify the manager is running
+		snapshotCmd, snapshotChan := GetSnapshot()
+		setup.resultCmd <- snapshotCmd
+
+		select {
+		case <-snapshotChan:
+			return true
+		case <-time.After(100 * time.Millisecond):
+			return false
+		}
+	}, 1*time.Second).Should(BeTrue(), "Expected manager to be running and responsive")
 
 	// Cancel context to stop the manager
 	cancel()
 
-	// The manager should stop when context is cancelled
-	// We don't need to wait for a specific completion signal since
-	// runManagerInBackground already started the manager
+	// Verify the manager stops within a reasonable time
+	Eventually(func() bool {
+		select {
+		case <-done:
+			return true
+		default:
+			return false
+		}
+	}, 2*time.Second).Should(BeTrue(), "Expected manager to stop after context cancellation")
 }
 
 func TestResultManager_HandleNewResult(t *testing.T) {
@@ -269,8 +297,8 @@ func TestResultManager_GetSnapshot(t *testing.T) {
 			RegisterTestingT(t)
 
 			setup := newTestResultManagerSetup()
-			defer setup.cleanup()
-			setup.start()
+			_, cancel := runManagerInBackground(setup)
+			defer cancel()
 
 			// Send all results
 			for _, asyncResult := range tc.setupResults {
@@ -312,8 +340,8 @@ func TestResultManager_RemoveStaleResults(t *testing.T) {
 	RegisterTestingT(t)
 
 	setup := newTestResultManagerSetup()
-	defer setup.cleanup()
-	setup.start()
+	_, cancel := runManagerInBackground(setup)
+	defer cancel()
 
 	// Add some results and wait for each to be processed
 	for i := 0; i < 3; i++ {
@@ -363,8 +391,6 @@ func TestResultManager_ConcurrentOperations(t *testing.T) {
 	resultCmd := make(chan resultCmdFunc, 100)
 
 	manager := NewResultManager(logger, admitterCommands, incomingResults, resultNotifications, resultCmd)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	setup := &testResultManagerSetup{
 		manager:             manager,
@@ -372,10 +398,9 @@ func TestResultManager_ConcurrentOperations(t *testing.T) {
 		incomingResults:     incomingResults,
 		resultNotifications: resultNotifications,
 		resultCmd:           resultCmd,
-		ctx:                 ctx,
-		cancel:              cancel,
 	}
-	setup.start()
+	_, cancel := runManagerInBackground(setup)
+	defer cancel()
 
 	var wg sync.WaitGroup
 	numGoroutines := 10
@@ -449,8 +474,8 @@ func TestResultManager_NotificationFlow(t *testing.T) {
 	RegisterTestingT(t)
 
 	setup := newTestResultManagerSetup()
-	defer setup.cleanup()
-	setup.start()
+	ctx, cancel := runManagerInBackground(setup)
+	defer cancel()
 
 	// Test sequence: allowed -> denied -> allowed -> error -> allowed
 	testCases := []struct {
@@ -478,7 +503,7 @@ func TestResultManager_NotificationFlow(t *testing.T) {
 				if notification.CheckName() == checkName {
 					receivedNotifications <- notification
 				}
-			case <-setup.ctx.Done():
+			case <-ctx.Done():
 				return
 			}
 		}
