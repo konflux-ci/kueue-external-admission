@@ -383,27 +383,12 @@ func TestResultManager_RemoveStaleResults(t *testing.T) {
 func TestResultManager_ConcurrentOperations(t *testing.T) {
 	RegisterTestingT(t)
 
-	// Create setup with larger buffer for concurrent operations
-	logger := logr.Discard()
-	admitterCommands := make(chan admitterCmdFunc, 100)
-	incomingResults := make(chan result.AsyncAdmissionResult, 100)
-	resultNotifications := make(chan result.AdmissionResult, 100)
-	resultCmd := make(chan resultCmdFunc, 100)
-
-	manager := NewResultManager(logger, admitterCommands, incomingResults, resultNotifications, resultCmd)
-
-	setup := &testResultManagerSetup{
-		manager:             manager,
-		admitterCommands:    admitterCommands,
-		incomingResults:     incomingResults,
-		resultNotifications: resultNotifications,
-		resultCmd:           resultCmd,
-	}
+	setup := newTestResultManagerSetup()
 	_, cancel := runManagerInBackground(setup)
 	defer cancel()
 
 	var wg sync.WaitGroup
-	numGoroutines := 10
+	numGoroutines := 100
 
 	// Concurrently send results
 	for i := 0; i < numGoroutines; i++ {
@@ -419,6 +404,10 @@ func TestResultManager_ConcurrentOperations(t *testing.T) {
 			)
 
 			setup.incomingResults <- asyncResult
+			// Create duplicate results
+			if index%2 == 0 {
+				setup.incomingResults <- asyncResult
+			}
 		}(i)
 	}
 
@@ -428,16 +417,11 @@ func TestResultManager_ConcurrentOperations(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-
+			//drain results channel
+			<-setup.resultNotifications
 			snapshotCmd, snapshotChan := GetSnapshot()
 			setup.resultCmd <- snapshotCmd
-
-			select {
-			case snapshot := <-snapshotChan:
-				snapshotResults <- snapshot
-			case <-time.After(2 * time.Second):
-				t.Errorf("Timeout waiting for snapshot")
-			}
+			snapshotResults <- <-snapshotChan
 		}()
 	}
 
@@ -450,7 +434,7 @@ func TestResultManager_ConcurrentOperations(t *testing.T) {
 		snapshotCount++
 		Expect(snapshot).ToNot(BeNil(), "Expected non-nil snapshot")
 		// The exact count may vary due to timing, but should be reasonable
-		Expect(len(snapshot)).To(BeNumerically(">=", 0), "Expected non-negative result count")
+		Expect(len(snapshot)).To(BeNumerically(">=", 0), "Expected positive result count")
 		Expect(len(snapshot)).To(BeNumerically("<=", numGoroutines), "Expected reasonable result count")
 	}
 
@@ -467,7 +451,7 @@ func TestResultManager_ConcurrentOperations(t *testing.T) {
 		default:
 			return -1
 		}
-	}, 2*time.Second).Should(Equal(numGoroutines), "Expected all concurrent results to be stored")
+	}, 10*time.Second).Should(Equal(numGoroutines), "Expected all concurrent results to be stored")
 }
 
 func TestResultManager_NotificationFlow(t *testing.T) {

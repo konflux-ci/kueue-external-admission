@@ -95,7 +95,11 @@ func (m *ResultManager) handleNewResult(newResult result.AsyncAdmissionResult) {
 	if changed {
 		if newResult.Error == nil {
 			m.logger.Info("Sending admission result to the channel", "admissionCheck", admissionCheckName)
-			m.resultNotifications <- newResult.AdmissionResult
+			select {
+			case m.resultNotifications <- newResult.AdmissionResult:
+			case <-time.After(1 * time.Second):
+				m.logger.Error(fmt.Errorf("timeout waiting for result notifications"), "Timeout waiting for result notifications")
+			}
 		} else {
 			m.logger.Info("Admission result changed but has error, not notifying",
 				"admissionCheck", admissionCheckName,
