@@ -343,8 +343,10 @@ func TestResultManager_RemoveStaleResults(t *testing.T) {
 	_, cancel := runManagerInBackground(setup)
 	defer cancel()
 
+	numOfResults := 50
+
 	// Add some results and wait for each to be processed
-	for i := 0; i < 3; i++ {
+	for i := 0; i < numOfResults; i++ {
 		asyncResult := createAsyncResult(fmt.Sprintf("check-%d", i), true, "", nil)
 		setup.incomingResults <- asyncResult
 
@@ -358,7 +360,7 @@ func TestResultManager_RemoveStaleResults(t *testing.T) {
 			case <-time.After(100 * time.Millisecond):
 				return -1 // timeout
 			}
-		}, 1*time.Second).Should(Equal(i+1), fmt.Sprintf("Expected %d results to be stored after adding result %d", i+1, i))
+		}, 40*time.Second).Should(Equal(i+1), fmt.Sprintf("Expected %d results to be stored after adding result %d", i+1, i))
 	}
 
 	// Since we can't easily mock the periodic cleanup (1-minute timer) without
@@ -377,7 +379,7 @@ func TestResultManager_RemoveStaleResults(t *testing.T) {
 		default:
 			return 0
 		}
-	}, 1*time.Second).Should(Equal(3), "Expected all results to be stored and accessible")
+	}, 1*time.Second).Should(Equal(numOfResults), "Expected all results to be stored and accessible")
 }
 
 func TestResultManager_ConcurrentOperations(t *testing.T) {

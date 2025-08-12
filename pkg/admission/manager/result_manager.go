@@ -97,7 +97,7 @@ func (m *ResultManager) handleNewResult(newResult result.AsyncAdmissionResult) {
 			m.logger.Info("Sending admission result to the channel", "admissionCheck", admissionCheckName)
 			select {
 			case m.resultNotifications <- newResult.AdmissionResult:
-			case <-time.After(1 * time.Second):
+			default:
 				m.logger.Error(fmt.Errorf("timeout waiting for result notifications"), "Timeout waiting for result notifications")
 			}
 		} else {
