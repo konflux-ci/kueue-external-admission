@@ -19,6 +19,7 @@ type ResultManager struct {
 	resultNotifications chan<- result.AdmissionResult
 	resultCmd           <-chan resultCmdFunc
 	admitterCommands    chan<- admitterCmdFunc
+	cleanupInterval     time.Duration
 }
 
 type resultCmdFunc func(m *ResultManager, ctx context.Context)
@@ -28,6 +29,7 @@ func NewResultManager(logger logr.Logger,
 	incomingResults <-chan result.AsyncAdmissionResult,
 	resultNotifications chan<- result.AdmissionResult,
 	resultCmd <-chan resultCmdFunc,
+	cleanupInterval time.Duration,
 ) *ResultManager {
 	return &ResultManager{
 		logger:              logger,
@@ -36,11 +38,12 @@ func NewResultManager(logger logr.Logger,
 		resultNotifications: resultNotifications,
 		resultCmd:           resultCmd,
 		admitterCommands:    admitterCommands,
+		cleanupInterval:     cleanupInterval,
 	}
 }
 
 func (m *ResultManager) Run(ctx context.Context) {
-	ticker := time.NewTicker(1 * time.Minute)
+	ticker := time.NewTicker(m.cleanupInterval)
 	defer ticker.Stop()
 	for {
 		m.logger.Info("Select loop iteration", "registrySize", len(m.resultsRegistry))

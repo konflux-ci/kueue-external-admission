@@ -28,21 +28,24 @@ func TestAdmitterComparison_ReflectDeepEqual(t *testing.T) {
 		mock2 := newMockAdmitterForAdmitterManager()
 
 		Expect(mock1.Equal(mock2)).To(BeTrue(), "Expected identical mock admitters to be equal")
-		Expect(reflect.DeepEqual(mock1, mock2)).To(BeTrue(), "Expected identical mock admitters to be equal with DeepEqual too")
+		Expect(reflect.DeepEqual(mock1, mock2)).To(BeTrue(),
+			"Expected identical mock admitters to be equal with DeepEqual too")
 
 		// Mock admitters with different configuration should not be equal
 		mock3 := newMockAdmitterForAdmitterManagerWithName("different-check")
 
 		// The Equal method should compare configuration
 		Expect(mock1.Equal(mock3)).To(BeFalse(), "Expected mock admitters with different check names to not be equal")
-		Expect(reflect.DeepEqual(mock1, mock3)).To(BeFalse(), "Expected mock admitters with different check names to not be equal with DeepEqual")
+		Expect(reflect.DeepEqual(mock1, mock3)).To(BeFalse(),
+			"Expected mock admitters with different check names to not be equal with DeepEqual")
 
 		// Mock admitters with different errors should not be equal
 		mock4 := newMockAdmitterWithError(fmt.Errorf("test error"))
 		mock5 := newMockAdmitterWithError(fmt.Errorf("different error"))
 
 		Expect(mock4.Equal(mock5)).To(BeFalse(), "Expected mock admitters with different errors to not be equal")
-		Expect(reflect.DeepEqual(mock4, mock5)).To(BeFalse(), "Expected mock admitters with different errors to not be equal with DeepEqual")
+		Expect(reflect.DeepEqual(mock4, mock5)).To(BeFalse(),
+			"Expected mock admitters with different errors to not be equal with DeepEqual")
 
 		// Same error message should be equal with Equal() but different error instances won't be equal with DeepEqual
 		sameError := fmt.Errorf("same error")
@@ -50,7 +53,8 @@ func TestAdmitterComparison_ReflectDeepEqual(t *testing.T) {
 		mock7 := newMockAdmitterWithError(sameError)
 
 		Expect(mock6.Equal(mock7)).To(BeTrue(), "Expected mock admitters with same error instance to be equal")
-		Expect(reflect.DeepEqual(mock6, mock7)).To(BeTrue(), "Expected mock admitters with same error instance to be equal with DeepEqual too")
+		Expect(reflect.DeepEqual(mock6, mock7)).To(BeTrue(),
+			"Expected mock admitters with same error instance to be equal with DeepEqual too")
 
 		// Different error instances with same message should be equal with Equal()
 		mock8 := newMockAdmitterWithError(fmt.Errorf("same message"))
@@ -118,12 +122,15 @@ func TestAdmitterComparison_ReflectDeepEqual(t *testing.T) {
 		// Test if identical configurations create equal admitters
 		isEqualWithEqual := admitter1.Equal(admitter2)
 		isEqualWithDeepEqual := reflect.DeepEqual(admitter1, admitter2)
-		t.Logf("AlertManager admitters with identical configs - Equal(): %v, DeepEqual(): %v", isEqualWithEqual, isEqualWithDeepEqual)
+		t.Logf("AlertManager admitters with identical configs - Equal(): %v, DeepEqual(): %v",
+			isEqualWithEqual, isEqualWithDeepEqual)
 
 		// The new Equal method should work correctly for identical configurations
-		Expect(isEqualWithEqual).To(BeTrue(), "AlertManager admitters with identical configs should be equal using Equal() method")
+		Expect(isEqualWithEqual).To(BeTrue(),
+			"AlertManager admitters with identical configs should be equal using Equal() method")
 		// DeepEqual should still fail due to internal state differences
-		Expect(isEqualWithDeepEqual).To(BeFalse(), "AlertManager admitters with identical configs should NOT be equal with DeepEqual due to internal state")
+		Expect(isEqualWithDeepEqual).To(BeFalse(),
+			"AlertManager admitters with identical configs should NOT be equal with DeepEqual due to internal state")
 	})
 
 	t.Run("SameInstanceComparison", func(t *testing.T) {
@@ -157,7 +164,8 @@ func TestAdmitterComparison_ReflectDeepEqual(t *testing.T) {
 		Expect(err).ToNot(HaveOccurred())
 
 		Expect(admitter.Equal(admitter)).To(BeTrue(), "Expected same admitter instance to be equal to itself using Equal()")
-		Expect(reflect.DeepEqual(admitter, admitter)).To(BeTrue(), "Expected same admitter instance to be equal to itself using DeepEqual")
+		Expect(reflect.DeepEqual(admitter, admitter)).To(BeTrue(),
+			"Expected same admitter instance to be equal to itself using DeepEqual")
 	})
 }
 
@@ -224,11 +232,11 @@ func TestAdmitterComparison_AlternativeApproaches(t *testing.T) {
 		mock2 := newMockAdmitterForAdmitterManager()
 
 		// Different instances should have different pointers
-		Expect(mock1 == mock2).To(BeFalse(), "Expected different instances to have different pointers")
+		Expect(mock1).ToNot(BeIdenticalTo(mock2), "Expected different instances to have different pointers")
 
 		// Same instance should have same pointer
 		mock3 := mock1
-		Expect(mock1 == mock3).To(BeTrue(), "Expected same instance to have same pointer")
+		Expect(mock1).To(BeIdenticalTo(mock3), "Expected same instance to have same pointer")
 
 		// Pointer comparison is simple, fast, and reliable
 		// It only skips replacement when the exact same instance is provided
@@ -294,6 +302,8 @@ func TestAdmitterComparison_AlternativeApproaches(t *testing.T) {
 func TestSetAdmitter_ComparisonBehavior(t *testing.T) {
 	RegisterTestingT(t)
 
+	const mockCheckName = "mock-check"
+
 	logger := logr.Discard()
 	admitterCommands := make(chan admitterCmdFunc, 10)
 	incomingResults := make(chan result.AsyncAdmissionResult, 10)
@@ -327,7 +337,7 @@ func TestSetAdmitter_ComparisonBehavior(t *testing.T) {
 		Eventually(func() bool {
 			select {
 			case result := <-incomingResults:
-				if result.AdmissionResult.CheckName() == "mock-check" {
+				if result.AdmissionResult.CheckName() == mockCheckName {
 					resultCount++
 					return true
 				}
@@ -352,13 +362,14 @@ func TestSetAdmitter_ComparisonBehavior(t *testing.T) {
 		Consistently(func() int {
 			select {
 			case result := <-incomingResults:
-				if result.AdmissionResult.CheckName() == "mock-check" {
+				if result.AdmissionResult.CheckName() == mockCheckName {
 					resultCount++
 				}
 			default:
 			}
 			return resultCount
-		}, 500*time.Millisecond, 50*time.Millisecond).Should(Equal(1), "Expected Sync not to be called again for same instance")
+		}, 500*time.Millisecond, 50*time.Millisecond).Should(Equal(1),
+			"Expected Sync not to be called again for same instance")
 	})
 
 	t.Run("DifferentInstancesReplaced", func(t *testing.T) {

@@ -15,6 +15,10 @@ import (
 	"github.com/konflux-ci/kueue-external-admission/pkg/admission/result"
 )
 
+const (
+	mockCheckName = "mock-check"
+)
+
 // mockAdmitterForAdmitterManager is a mock implementation of the Admitter interface for AdmitterManager testing
 // Uses channels for communication instead of shared state to avoid race conditions
 type mockAdmitterForAdmitterManager struct {
@@ -23,7 +27,8 @@ type mockAdmitterForAdmitterManager struct {
 	checkName        string // Name to use in admission results
 }
 
-func (m *mockAdmitterForAdmitterManager) Sync(ctx context.Context, asyncAdmissionResults chan<- result.AsyncAdmissionResult) error {
+func (m *mockAdmitterForAdmitterManager) Sync(ctx context.Context,
+	asyncAdmissionResults chan<- result.AsyncAdmissionResult) error {
 	if m.syncError != nil {
 		return m.syncError
 	}
@@ -70,7 +75,7 @@ func (m *mockAdmitterForAdmitterManager) Equal(other admission.Admitter) bool {
 
 func newMockAdmitterForAdmitterManager() *mockAdmitterForAdmitterManager {
 	return &mockAdmitterForAdmitterManager{
-		checkName: "mock-check",
+		checkName: mockCheckName,
 	}
 }
 
@@ -85,23 +90,6 @@ func newMockAdmitterWithError(err error) *mockAdmitterForAdmitterManager {
 		syncError: err,
 		checkName: "mock-check-error",
 	}
-}
-
-// Helper function to safely get admitter count
-func getAdmitterCount(admitterCommands chan admitterCmdFunc) int {
-	listCmd, resultChan := ListAdmitters()
-	admitterCommands <- listCmd
-	result := <-resultChan
-	return len(result)
-}
-
-// Helper function to safely check if admitter exists
-func admitterExists(admitterCommands chan admitterCmdFunc, name string) bool {
-	listCmd, resultChan := ListAdmitters()
-	admitterCommands <- listCmd
-	result := <-resultChan
-	_, exists := result[name]
-	return exists
 }
 
 func newMockAdmitterThatBlocksUntilCancel() *mockAdmitterForAdmitterManager {
@@ -211,7 +199,7 @@ func TestAdmitterManager_Run_ProcessCommands(t *testing.T) {
 	Eventually(func() bool {
 		select {
 		case result := <-incomingResults:
-			return result.AdmissionResult.CheckName() == "mock-check"
+			return result.AdmissionResult.CheckName() == mockCheckName
 		default:
 			return false
 		}
@@ -263,7 +251,7 @@ func TestSetAdmitter_NewAdmitter(t *testing.T) {
 	Eventually(func() bool {
 		select {
 		case result := <-incomingResults:
-			return result.AdmissionResult.CheckName() == "mock-check"
+			return result.AdmissionResult.CheckName() == mockCheckName
 		default:
 			return false
 		}
@@ -314,7 +302,7 @@ func TestSetAdmitter_ReplaceExistingAdmitter(t *testing.T) {
 	Eventually(func() bool {
 		select {
 		case result := <-incomingResults:
-			return result.AdmissionResult.CheckName() == "mock-check"
+			return result.AdmissionResult.CheckName() == mockCheckName
 		default:
 			return false
 		}
@@ -347,7 +335,7 @@ func TestSetAdmitter_SameAdmitterSkipped(t *testing.T) {
 	Eventually(func() bool {
 		select {
 		case result := <-incomingResults:
-			if result.AdmissionResult.CheckName() == "mock-check" {
+			if result.AdmissionResult.CheckName() == mockCheckName {
 				resultCount++
 				return true
 			}
@@ -364,13 +352,14 @@ func TestSetAdmitter_SameAdmitterSkipped(t *testing.T) {
 	Consistently(func() int {
 		select {
 		case result := <-incomingResults:
-			if result.AdmissionResult.CheckName() == "mock-check" {
+			if result.AdmissionResult.CheckName() == mockCheckName {
 				resultCount++
 			}
 		default:
 		}
 		return resultCount
-	}, 500*time.Millisecond, 50*time.Millisecond).Should(Equal(1), "Expected Sync call count to remain the same when same admitter is set")
+	}, 500*time.Millisecond, 50*time.Millisecond).Should(Equal(1),
+		"Expected Sync call count to remain the same when same admitter is set")
 }
 
 func TestSetAdmitter_SyncError_Retry(t *testing.T) {
@@ -499,7 +488,7 @@ func TestListAdmitters_Empty(t *testing.T) {
 
 	result := <-resultChan
 	Expect(result).ToNot(BeNil(), "Expected non-nil result")
-	Expect(len(result)).To(Equal(0), "Expected empty admitters list")
+	Expect(result).To(BeEmpty(), "Expected empty admitters list")
 }
 
 func TestListAdmitters_WithAdmitters(t *testing.T) {
@@ -541,7 +530,7 @@ func TestListAdmitters_WithAdmitters(t *testing.T) {
 
 	result := <-resultChan
 	Expect(result).ToNot(BeNil(), "Expected non-nil result")
-	Expect(len(result)).To(Equal(2), "Expected two admitters in list")
+	Expect(result).To(HaveLen(2), "Expected two admitters in list")
 	Expect(result["check-1"]).To(BeTrue(), "Expected check-1 to be in list")
 	Expect(result["check-2"]).To(BeTrue(), "Expected check-2 to be in list")
 }

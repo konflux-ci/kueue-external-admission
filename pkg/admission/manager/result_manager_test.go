@@ -31,7 +31,7 @@ func newTestResultManagerSetup() *testResultManagerSetup {
 	resultNotifications := make(chan result.AdmissionResult, 10)
 	resultCmd := make(chan resultCmdFunc, 10)
 
-	manager := NewResultManager(logger, admitterCommands, incomingResults, resultNotifications, resultCmd)
+	manager := NewResultManager(logger, admitterCommands, incomingResults, resultNotifications, resultCmd, 1*time.Second)
 
 	return &testResultManagerSetup{
 		manager:             manager,
@@ -74,7 +74,7 @@ func TestNewResultManager(t *testing.T) {
 
 	Expect(setup.manager).ToNot(BeNil(), "Expected non-nil ResultManager")
 	Expect(setup.manager.resultsRegistry).ToNot(BeNil(), "Expected resultsRegistry to be initialized")
-	Expect(len(setup.manager.resultsRegistry)).To(Equal(0), "Expected resultsRegistry to be empty initially")
+	Expect(setup.manager.resultsRegistry).To(BeEmpty(), "Expected resultsRegistry to be empty initially")
 
 	// Verify channels are set (we can't compare them directly due to type differences)
 	Expect(setup.manager.admitterCommands).ToNot(BeNil(), "Expected admitterCommands channel to be set")
@@ -127,6 +127,8 @@ func TestResultManager_Run_ContextCancellation(t *testing.T) {
 }
 
 func TestResultManager_HandleNewResult(t *testing.T) {
+	const testCheckName = "test-check"
+
 	testCases := []struct {
 		name                  string
 		setupResults          []result.AsyncAdmissionResult
@@ -138,7 +140,7 @@ func TestResultManager_HandleNewResult(t *testing.T) {
 		{
 			name: "FirstResult",
 			setupResults: []result.AsyncAdmissionResult{
-				createAsyncResult("test-check", true, "test details", nil),
+				createAsyncResult(testCheckName, true, "test details", nil),
 			},
 			expectedNotifications: 1,
 			validateFirstResult: func(notification result.AdmissionResult) bool {
@@ -149,34 +151,34 @@ func TestResultManager_HandleNewResult(t *testing.T) {
 		{
 			name: "SameResult",
 			setupResults: []result.AsyncAdmissionResult{
-				createAsyncResult("test-check", true, "test details", nil),
-				createAsyncResult("test-check", true, "test details", nil), // Same result
+				createAsyncResult(testCheckName, true, "test details", nil),
+				createAsyncResult(testCheckName, true, "test details", nil), // Same result
 			},
 			expectedNotifications: 1, // Only first should notify
 			validateFirstResult: func(notification result.AdmissionResult) bool {
-				return notification.CheckName() == "test-check" && notification.ShouldAdmit()
+				return notification.CheckName() == testCheckName && notification.ShouldAdmit()
 			},
 			expectStoredError: false,
 		},
 		{
 			name: "ChangedResult",
 			setupResults: []result.AsyncAdmissionResult{
-				createAsyncResult("test-check", true, "first", nil),
-				createAsyncResult("test-check", false, "second", nil), // Different result
+				createAsyncResult(testCheckName, true, "first", nil),
+				createAsyncResult(testCheckName, false, "second", nil), // Different result
 			},
 			expectedNotifications: 2,
 			validateFirstResult: func(notification result.AdmissionResult) bool {
-				return notification.CheckName() == "test-check" && notification.ShouldAdmit()
+				return notification.CheckName() == testCheckName && notification.ShouldAdmit()
 			},
 			validateSecondResult: func(notification result.AdmissionResult) bool {
-				return notification.CheckName() == "test-check" && !notification.ShouldAdmit()
+				return notification.CheckName() == testCheckName && !notification.ShouldAdmit()
 			},
 			expectStoredError: false,
 		},
 		{
 			name: "WithError",
 			setupResults: []result.AsyncAdmissionResult{
-				createAsyncResult("test-check", false, "error case", errors.New("test error")),
+				createAsyncResult(testCheckName, false, "error case", errors.New("test error")),
 			},
 			expectedNotifications: 0, // No notifications for errors
 			expectStoredError:     true,
@@ -360,7 +362,7 @@ func TestResultManager_RemoveStaleResults(t *testing.T) {
 			case <-time.After(100 * time.Millisecond):
 				return -1 // timeout
 			}
-		}, 40*time.Second).Should(Equal(i+1), fmt.Sprintf("Expected %d results to be stored after adding result %d", i+1, i))
+		}, 1*time.Second).Should(Equal(i+1), fmt.Sprintf("Expected %d results to be stored after adding result %d", i+1, i))
 	}
 
 	// Since we can't easily mock the periodic cleanup (1-minute timer) without
@@ -377,9 +379,9 @@ func TestResultManager_RemoveStaleResults(t *testing.T) {
 		case snapshot := <-snapshotChan:
 			return len(snapshot)
 		default:
-			return 0
+			return -1
 		}
-	}, 1*time.Second).Should(Equal(numOfResults), "Expected all results to be stored and accessible")
+	}, 3*time.Second).Should(Equal(1), "Expected results to be removed after cleanup")
 }
 
 func TestResultManager_ConcurrentOperations(t *testing.T) {
@@ -419,7 +421,7 @@ func TestResultManager_ConcurrentOperations(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			//drain results channel
+			// drain results channel
 			<-setup.resultNotifications
 			snapshotCmd, snapshotChan := GetSnapshot()
 			setup.resultCmd <- snapshotCmd
@@ -507,7 +509,7 @@ func TestResultManager_NotificationFlow(t *testing.T) {
 	}
 
 	// Verify notification contents
-	Expect(len(notifications)).To(Equal(4), "Expected 4 notifications")
+	Expect(notifications).To(HaveLen(4), "Expected 4 notifications")
 	Expect(notifications[0].ShouldAdmit()).To(BeTrue(), "First notification should be allowed")
 	Expect(notifications[1].ShouldAdmit()).To(BeFalse(), "Second notification should be denied")
 	Expect(notifications[2].ShouldAdmit()).To(BeTrue(), "Third notification should be allowed")

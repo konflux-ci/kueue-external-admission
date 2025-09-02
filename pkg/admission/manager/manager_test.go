@@ -112,7 +112,8 @@ func TestAdmissionService_ConcurrentAccess(t *testing.T) {
 	// Create a test admitter
 	admitter := newMockAdmitter("test-key", true, []string{"detail1"})
 
-	service.SetAdmitter(ctx, "test-key", admitter)
+	err := service.SetAdmitter(ctx, "test-key", admitter)
+	Expect(err).ToNot(HaveOccurred(), "Failed to set admitter")
 
 	done := make(chan bool, 10)
 
@@ -139,7 +140,8 @@ func TestAdmissionService_ConcurrentAccess(t *testing.T) {
 			t.Log("retrieved admitter")
 
 			t.Log("removing admitter")
-			service.RemoveAdmitter(ctx, "concurrent-test")
+			err = service.RemoveAdmitter(ctx, "concurrent-test")
+			Expect(err).ToNot(HaveOccurred(), "Failed to remove admitter")
 			t.Log("removed admitter")
 		}()
 	}
@@ -167,8 +169,11 @@ func TestAdmissionService_RetrieveMultipleAdmitters(t *testing.T) {
 	admitter2 := newMockAdmitter("key2", false, []string{"detail2"})
 
 	// Store admitters
-	service.SetAdmitter(ctx, "key1", admitter1)
-	service.SetAdmitter(ctx, "key2", admitter2)
+	var err error
+	err = service.SetAdmitter(ctx, "key1", admitter1)
+	Expect(err).ToNot(HaveOccurred(), "Failed to set admitter1")
+	err = service.SetAdmitter(ctx, "key2", admitter2)
+	Expect(err).ToNot(HaveOccurred(), "Failed to set admitter2")
 
 	// Retrieve both
 	cmd, resultChan := GetSnapshot()

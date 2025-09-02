@@ -51,6 +51,7 @@ func (s *AdmissionManager) Start(ctx context.Context) error {
 		s.incomingResults,
 		s.resultNotifications,
 		s.resultCmd,
+		1*time.Minute,
 	)
 	go resultManager.Run(ctx)
 
@@ -60,8 +61,10 @@ func (s *AdmissionManager) Start(ctx context.Context) error {
 	return ctx.Err()
 }
 
-func (s *AdmissionManager) SetAdmitter(ctx context.Context, admissionCheckName string, admitter admission.Admitter) error {
-	timeout, _ := context.WithTimeout(ctx, 10*time.Second)
+func (s *AdmissionManager) SetAdmitter(ctx context.Context,
+	admissionCheckName string, admitter admission.Admitter) error {
+	timeout, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
 	select {
 	case <-timeout.Done():
 		return ctx.Err()
@@ -71,7 +74,8 @@ func (s *AdmissionManager) SetAdmitter(ctx context.Context, admissionCheckName s
 }
 
 func (s *AdmissionManager) RemoveAdmitter(ctx context.Context, admissionCheckName string) error {
-	timeout, _ := context.WithTimeout(ctx, 10*time.Second)
+	timeout, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
 	select {
 	case <-timeout.Done():
 		return ctx.Err()
