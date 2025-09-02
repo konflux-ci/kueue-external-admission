@@ -26,9 +26,8 @@ spec:
             - name: "team"
               value: "platform|infrastructure"
               operator: "regex"
-      polling:
+      syncConfig:
         interval: "30s"
-        failureThreshold: 3
 ---
 # Updated AdmissionCheck that references the config
 apiVersion: kueue.x-k8s.io/v1beta1
@@ -43,7 +42,7 @@ spec:
     name: alertmanager-config
 ---
 # Examples showing how future providers could be added:
-# 
+#
 # Webhook provider:
 # apiVersion: konflux-ci.dev/v1alpha1
 # kind: ExternalAdmissionConfig

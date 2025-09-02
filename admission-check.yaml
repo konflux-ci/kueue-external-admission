@@ -26,7 +26,7 @@ spec:
   #       alertFilters:
   #         - alertNames:
   #             - "HighCPUUsage"
-  #             - "HighMemoryUsage" 
+  #             - "HighMemoryUsage"
   #             - "NodeNotReady"
   #         - alertNames:
   #             - "KubernetesPodCrashLooping"
@@ -35,16 +35,15 @@ spec:
   #           # workloadSelector:
   #           #   matchLabels:
   #           #     team: "backend"
-  #       polling:
+  #       syncConfig:
   #         interval: "30s"
-  #         failureThreshold: 3
 
 ---
 # Example workflow demonstrating how event-driven admission works:
 #
 # 1. WORKLOAD CREATED:
 # apiVersion: kueue.x-k8s.io/v1beta1
-# kind: Workload  
+# kind: Workload
 # metadata:
 #   name: my-workload
 # status:
@@ -61,7 +60,7 @@ spec:
 # 3. WORKLOAD RE-EVALUATED:
 # status:
 #   admissionChecks:
-#   - name: sample-admission-check  
+#   - name: sample-admission-check
 #     state: Ready
 #     message: "approving workload"
 #
@@ -69,7 +68,7 @@ spec:
 #    - Kueue sees the Ready state and admits the workload
 #    - Workload starts running on the cluster
 #
-# WITHOUT the event system, the workload would remain stuck in 
+# WITHOUT the event system, the workload would remain stuck in
 # denial state even after alerts resolve, requiring manual intervention.
 
 ---

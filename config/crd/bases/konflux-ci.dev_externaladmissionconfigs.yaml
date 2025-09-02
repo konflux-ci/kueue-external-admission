@@ -97,10 +97,6 @@ spec:
                               type: array
                           type: object
                         type: array
-                      checkTTL:
-                        description: CheckTTL contains the configuration how long
-                          to cache the admission result
-                        type: string
                       connection:
                         description: Connection contains AlertManager connection details
                         properties:
@@ -158,6 +154,15 @@ spec:
                             type: string
                         required:
                         - url
+                        type: object
+                      syncConfig:
+                        description: SyncConfig contains the configuration for syncing
+                          with AlertManager
+                        properties:
+                          interval:
+                            default: 30s
+                            description: Interval is the duration between sync operations
+                            type: string
                         type: object
                     required:
                     - alertFilters

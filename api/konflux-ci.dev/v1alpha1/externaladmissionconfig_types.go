@@ -48,8 +48,15 @@ type AlertManagerProviderConfig struct {
 	// Each filter can be applied to different subsets of workloads
 	AlertFilters []AlertFiltersConfig `json:"alertFilters"`
 
-	// CheckTTL contains the configuration how long to cache the admission result
-	CheckTTL *metav1.Duration `json:"checkTTL,omitempty"`
+	// SyncConfig contains the configuration for syncing with AlertManager
+	SyncConfig *SyncConfig `json:"syncConfig,omitempty"`
+}
+
+// SyncConfig contains configuration for syncing operations
+type SyncConfig struct {
+	// Interval is the duration between sync operations
+	// +kubebuilder:default="30s"
+	Interval *metav1.Duration `json:"interval,omitempty"`
 }
 
 // AlertManagerConnectionConfig contains AlertManager connection details

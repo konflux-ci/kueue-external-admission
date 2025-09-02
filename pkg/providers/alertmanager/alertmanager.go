@@ -89,7 +89,13 @@ func NewAdmitter(
 // Sync runs the admission check in a loop and sends the results to the channel
 // This method blocks until the context is cancelled
 func (a *admitter) Sync(ctx context.Context, results chan<- result.AsyncAdmissionResult) error {
-	ticker := time.NewTicker(a.config.CheckTTL.Duration)
+	// Use configured interval or default to 30 seconds
+	interval := 30 * time.Second
+	if a.config.SyncConfig != nil && a.config.SyncConfig.Interval != nil {
+		interval = a.config.SyncConfig.Interval.Duration
+	}
+
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	for {

@@ -48,10 +48,12 @@ func TestFactory_NewAdmitter_AlertManagerProvider(t *testing.T) {
 					},
 					AlertFilters: []konfluxciv1alpha1.AlertFiltersConfig{
 						{
-							AlertNames: []string{"test-alert"},
+							AlertNames: []string{"TestAlert"},
 						},
 					},
-					CheckTTL: &metav1.Duration{Duration: 30 * time.Second},
+					SyncConfig: &konfluxciv1alpha1.SyncConfig{
+						Interval: &metav1.Duration{Duration: 30 * time.Second},
+					},
 				},
 			},
 		},

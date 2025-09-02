@@ -12,7 +12,8 @@ spec:
       alertFilters:
         - alertNames:
             - TestAlertAlwaysFiring
-      checkTTL: "45s"
+      syncConfig:
+        interval: "45s"
 
 ---
 apiVersion: kueue.x-k8s.io/v1beta1
@@ -39,7 +40,8 @@ spec:
       alertFilters:
         - alertNames:
             - TestAlert
-      checkTTL: "45s"
+      syncConfig:
+        interval: "45s"
 
 ---
 apiVersion: kueue.x-k8s.io/v1beta1
@@ -87,4 +89,4 @@ metadata:
 spec:
   clusterQueue: test-cluster-queue
 
- 
+

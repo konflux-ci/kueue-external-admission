@@ -77,7 +77,9 @@ func TestAdmitterComparison_ReflectDeepEqual(t *testing.T) {
 					AlertNames: []string{"alert1", "alert2"},
 				},
 			},
-			CheckTTL: &metav1.Duration{Duration: 30 * time.Second},
+			SyncConfig: &konfluxciv1alpha1.SyncConfig{
+				Interval: &metav1.Duration{Duration: 30 * time.Second},
+			},
 		}
 
 		config2 := &konfluxciv1alpha1.AlertManagerProviderConfig{
@@ -89,7 +91,9 @@ func TestAdmitterComparison_ReflectDeepEqual(t *testing.T) {
 					AlertNames: []string{"alert1", "alert2"},
 				},
 			},
-			CheckTTL: &metav1.Duration{Duration: 30 * time.Second},
+			SyncConfig: &konfluxciv1alpha1.SyncConfig{
+				Interval: &metav1.Duration{Duration: 30 * time.Second},
+			},
 		}
 
 		// Create admitters with identical configurations
@@ -154,7 +158,9 @@ func TestAdmitterComparison_ReflectDeepEqual(t *testing.T) {
 						AlertFilters: []konfluxciv1alpha1.AlertFiltersConfig{
 							{AlertNames: []string{"alert1"}},
 						},
-						CheckTTL: &metav1.Duration{Duration: 30 * time.Second},
+						SyncConfig: &konfluxciv1alpha1.SyncConfig{
+							Interval: &metav1.Duration{Duration: 30 * time.Second},
+						},
 					},
 				},
 			},
@@ -190,7 +196,9 @@ func TestAdmitterComparison_ProblemsWithDeepEqual(t *testing.T) {
 						AlertFilters: []konfluxciv1alpha1.AlertFiltersConfig{
 							{AlertNames: []string{"alert1"}},
 						},
-						CheckTTL: &metav1.Duration{Duration: 30 * time.Second},
+						SyncConfig: &konfluxciv1alpha1.SyncConfig{
+							Interval: &metav1.Duration{Duration: 30 * time.Second},
+						},
 					},
 				},
 			},
@@ -252,7 +260,7 @@ func TestAdmitterComparison_AlternativeApproaches(t *testing.T) {
 		// For example, for AlertManager admitters, we might want to compare:
 		// - URL
 		// - AlertFilters
-		// - CheckTTL
+		// - SyncConfig
 		// But NOT internal state like HTTP clients, loggers, etc.
 
 		// This test demonstrates what a more robust comparison might look like
@@ -263,7 +271,9 @@ func TestAdmitterComparison_AlternativeApproaches(t *testing.T) {
 			AlertFilters: []konfluxciv1alpha1.AlertFiltersConfig{
 				{AlertNames: []string{"alert1"}},
 			},
-			CheckTTL: &metav1.Duration{Duration: 30 * time.Second},
+			SyncConfig: &konfluxciv1alpha1.SyncConfig{
+				Interval: &metav1.Duration{Duration: 30 * time.Second},
+			},
 		}
 
 		config2 := &konfluxciv1alpha1.AlertManagerProviderConfig{
@@ -273,7 +283,9 @@ func TestAdmitterComparison_AlternativeApproaches(t *testing.T) {
 			AlertFilters: []konfluxciv1alpha1.AlertFiltersConfig{
 				{AlertNames: []string{"alert1"}},
 			},
-			CheckTTL: &metav1.Duration{Duration: 30 * time.Second},
+			SyncConfig: &konfluxciv1alpha1.SyncConfig{
+				Interval: &metav1.Duration{Duration: 30 * time.Second},
+			},
 		}
 
 		// These configurations should be considered equal
@@ -287,7 +299,9 @@ func TestAdmitterComparison_AlternativeApproaches(t *testing.T) {
 			AlertFilters: []konfluxciv1alpha1.AlertFiltersConfig{
 				{AlertNames: []string{"alert1"}},
 			},
-			CheckTTL: &metav1.Duration{Duration: 30 * time.Second},
+			SyncConfig: &konfluxciv1alpha1.SyncConfig{
+				Interval: &metav1.Duration{Duration: 30 * time.Second},
+			},
 		}
 
 		Expect(reflect.DeepEqual(config1, config3)).To(BeFalse(), "Expected different URLs to not be equal")
@@ -421,7 +435,9 @@ func TestSetAdmitter_ComparisonBehavior(t *testing.T) {
 						AlertFilters: []konfluxciv1alpha1.AlertFiltersConfig{
 							{AlertNames: []string{"alert1"}},
 						},
-						CheckTTL: &metav1.Duration{Duration: 30 * time.Second},
+						SyncConfig: &konfluxciv1alpha1.SyncConfig{
+							Interval: &metav1.Duration{Duration: 30 * time.Second},
+						},
 					},
 				},
 			},
