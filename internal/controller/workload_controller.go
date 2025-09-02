@@ -20,17 +20,14 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/konflux-ci/kueue-external-admission/pkg/admission"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
-	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -86,10 +83,9 @@ func (w *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	log.Info("Reconcile", "Workload", wl.Name)
 
-	// TODO: check what other AC controllers do when the workload has no quota reservation
 	if !workload.HasQuotaReservation(wl) {
 		log.Info("Workload has no quota reservation, skipping", "workload", wl.Name)
-		return reconcile.Result{RequeueAfter: 10 * time.Second}, nil
+		return reconcile.Result{}, nil
 	}
 
 	if workload.IsFinished(wl) || workload.IsEvicted(wl) || workload.IsAdmitted(wl) {
@@ -182,7 +178,7 @@ func (w *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 // SetupWithManager sets up the controller with the Manager.
 func (w *WorkloadReconciler) SetupWithManager(mgr ctrl.Manager, eventsChan <-chan event.GenericEvent) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&kueue.Workload{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		For(&kueue.Workload{}).
 		WatchesRawSource(
 			source.Channel(
 				eventsChan,
