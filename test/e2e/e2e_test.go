@@ -53,13 +53,15 @@ import (
 const namespace = "kueue-external-admission"
 
 // serviceAccountName created for the project
-const serviceAccountName = "alert-mgr-kueue-admission-controller-manager"
+const serviceAccountName = "kueue-external-admission-controller-manager"
 
 // metricsServiceName is the name of the metrics service of the project
-const metricsServiceName = "alert-mgr-kueue-admission-controller-manager-metrics-service"
+const metricsServiceName = "kueue-external-admission-controller-manager-metrics-service"
 
 // metricsRoleBindingName is the name of the RBAC that will be created to allow get the metrics data
-const metricsRoleBindingName = "alert-mgr-kueue-admission-metrics-binding"
+const metricsRoleBindingName = "kueue-external-admission-metrics-binding"
+
+const metricsReaderClusterRoleName = "kueue-external-admission-metrics-reader"
 
 var _ = Describe("Manager", Ordered, func() {
 	var controllerPodName string
@@ -219,7 +221,7 @@ var _ = Describe("Manager", Ordered, func() {
 				"-o",
 				"yaml",
 				metricsRoleBindingName,
-				"--clusterrole=alert-mgr-kueue-admission-metrics-reader",
+				fmt.Sprintf("--clusterrole=%s", metricsReaderClusterRoleName),
 				fmt.Sprintf("--serviceaccount=%s:%s", namespace, serviceAccountName),
 			)
 			crb, err := utils.Run(cmd)
