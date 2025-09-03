@@ -45,13 +45,16 @@ func (s *AdmissionManager) Start(ctx context.Context) error {
 	)
 	go admitterManager.Run(ctx)
 
+	ticker := time.NewTicker(1 * time.Minute)
+	defer ticker.Stop()
+
 	resultManager := NewResultManager(
 		s.logger.WithName("result-manager"),
 		s.admitterCmd,
 		s.incomingResults,
 		s.resultNotifications,
 		s.resultCmd,
-		1*time.Minute,
+		ticker.C,
 	)
 	go resultManager.Run(ctx)
 

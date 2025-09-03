@@ -19,7 +19,7 @@ type ResultManager struct {
 	resultNotifications chan<- result.AdmissionResult
 	resultCmd           <-chan resultCmdFunc
 	admitterCommands    chan<- admitterCmdFunc
-	cleanupInterval     time.Duration
+	cleanupChan         <-chan time.Time
 }
 
 type resultCmdFunc func(m *ResultManager, ctx context.Context)
@@ -29,7 +29,7 @@ func NewResultManager(logger logr.Logger,
 	incomingResults <-chan result.AsyncAdmissionResult,
 	resultNotifications chan<- result.AdmissionResult,
 	resultCmd <-chan resultCmdFunc,
-	cleanupInterval time.Duration,
+	cleanupChan <-chan time.Time,
 ) *ResultManager {
 	return &ResultManager{
 		logger:              logger,
@@ -38,13 +38,11 @@ func NewResultManager(logger logr.Logger,
 		resultNotifications: resultNotifications,
 		resultCmd:           resultCmd,
 		admitterCommands:    admitterCommands,
-		cleanupInterval:     cleanupInterval,
+		cleanupChan:         cleanupChan,
 	}
 }
 
 func (m *ResultManager) Run(ctx context.Context) {
-	ticker := time.NewTicker(m.cleanupInterval)
-	defer ticker.Stop()
 	for {
 		m.logger.Info("Select loop iteration", "registrySize", len(m.resultsRegistry))
 		select {
@@ -52,7 +50,7 @@ func (m *ResultManager) Run(ctx context.Context) {
 			m.logger.Info("Stopping readAsyncAdmissionResults, context done")
 			return
 		// Clean the local results registry. Remove results for which the admitter is not present.
-		case <-ticker.C:
+		case <-m.cleanupChan:
 			m.removeStaleResults(m.admitterCommands)
 		// Run a command.
 		case cmd := <-m.resultCmd:
@@ -119,14 +117,14 @@ func (m *ResultManager) removeStaleResults(admitterCommands chan<- admitterCmdFu
 		"registrySize", len(m.resultsRegistry),
 	)
 	initialRegistrySize := len(m.resultsRegistry)
-	listAdmitters, getAdmitters := ListAdmitters()
+	listAdmitters, admitterChan := ListAdmitters()
 	admitterCommands <- listAdmitters
 
 	select {
 	case <-time.After(10 * time.Second):
 		m.logger.Error(fmt.Errorf("timeout waiting for admitters"), "Timeout waiting for admitters")
 		return
-	case admitters := <-getAdmitters:
+	case admitters := <-admitterChan:
 		maps.DeleteFunc(m.resultsRegistry, func(key string, _ result.AsyncAdmissionResult) bool {
 			_, ok := admitters[key]
 			return !ok

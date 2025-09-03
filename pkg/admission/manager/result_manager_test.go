@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-logr/logr"
 	. "github.com/onsi/gomega"
+	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	"github.com/konflux-ci/kueue-external-admission/pkg/admission/result"
 )
@@ -17,34 +17,41 @@ import (
 // testResultManagerSetup creates a new ResultManager with all necessary channels for testing
 type testResultManagerSetup struct {
 	manager             *ResultManager
+	admitterManager     *AdmitterManager
 	admitterCommands    chan admitterCmdFunc
 	incomingResults     chan result.AsyncAdmissionResult
 	resultNotifications chan result.AdmissionResult
 	resultCmd           chan resultCmdFunc
+	cleanupChan         chan time.Time
 }
 
 // newTestResultManagerSetup creates a complete test setup for ResultManager
 func newTestResultManagerSetup() *testResultManagerSetup {
-	logger := logr.Discard()
-	admitterCommands := make(chan admitterCmdFunc, 10)
+	logger := zap.New(zap.UseDevMode(true))
+	admitterCommands := make(chan admitterCmdFunc, 1)
 	incomingResults := make(chan result.AsyncAdmissionResult, 10)
 	resultNotifications := make(chan result.AdmissionResult, 10)
-	resultCmd := make(chan resultCmdFunc, 10)
+	resultCmd := make(chan resultCmdFunc, 1)
+	cleanupChan := make(chan time.Time, 1)
 
-	manager := NewResultManager(logger, admitterCommands, incomingResults, resultNotifications, resultCmd, 1*time.Second)
+	manager := NewResultManager(logger, admitterCommands, incomingResults, resultNotifications, resultCmd, cleanupChan)
+	admitterManager := NewAdmitterManager(logger, admitterCommands, incomingResults)
 
 	return &testResultManagerSetup{
 		manager:             manager,
+		admitterManager:     admitterManager,
 		admitterCommands:    admitterCommands,
 		incomingResults:     incomingResults,
 		resultNotifications: resultNotifications,
 		resultCmd:           resultCmd,
+		cleanupChan:         cleanupChan,
 	}
 }
 
 // runManagerInBackground starts the manager in a goroutine and returns context and cancel function
 func runManagerInBackground(setup *testResultManagerSetup) (context.Context, context.CancelFunc) {
 	ctx, cancel := context.WithCancel(context.Background())
+	go setup.admitterManager.Run(ctx)
 	go setup.manager.Run(ctx)
 	return ctx, cancel
 }
@@ -345,10 +352,14 @@ func TestResultManager_RemoveStaleResults(t *testing.T) {
 	_, cancel := runManagerInBackground(setup)
 	defer cancel()
 
+	mockAdmitter := newMockAdmitterForAdmitterManager()
+	setup.admitterCommands <- SetAdmitter(mockCheckName, mockAdmitter)
+	setup.incomingResults <- createAsyncResult("mock-check", true, "", nil)
+
 	numOfResults := 50
 
 	// Add some results and wait for each to be processed
-	for i := 0; i < numOfResults; i++ {
+	for i := range numOfResults {
 		asyncResult := createAsyncResult(fmt.Sprintf("check-%d", i), true, "", nil)
 		setup.incomingResults <- asyncResult
 
@@ -362,26 +373,24 @@ func TestResultManager_RemoveStaleResults(t *testing.T) {
 			case <-time.After(100 * time.Millisecond):
 				return -1 // timeout
 			}
-		}, 1*time.Second).Should(Equal(i+1), fmt.Sprintf("Expected %d results to be stored after adding result %d", i+1, i))
+		}, 1*time.Second).Should(Equal(i+2), fmt.Sprintf("Expected %d results to be stored after adding result %d", i+1, i))
 	}
 
-	// Since we can't easily mock the periodic cleanup (1-minute timer) without
-	// modifying the production code, this test verifies that results are properly stored.
-	// The stale removal functionality is tested through integration tests where
-	// the actual timer triggers the cleanup.
-
-	// Verify that the results are properly stored and accessible
-	snapshotCmd, snapshotChan := GetSnapshot()
-	setup.resultCmd <- snapshotCmd
+	// Trigger cleanup
+	setup.cleanupChan <- time.Now()
 
 	Eventually(func() int {
+		// Verify that the results are properly stored and accessible
+		snapshotCmd, snapshotChan := GetSnapshot()
+		setup.resultCmd <- snapshotCmd
+
 		select {
 		case snapshot := <-snapshotChan:
 			return len(snapshot)
-		default:
+		case <-time.After(100 * time.Millisecond):
 			return -1
 		}
-	}, 3*time.Second).Should(Equal(1), "Expected results to be removed after cleanup")
+	}, 3*time.Second).Should(Equal(1), "Expected only 1 result to remain after cleanup")
 }
 
 func TestResultManager_ConcurrentOperations(t *testing.T) {
