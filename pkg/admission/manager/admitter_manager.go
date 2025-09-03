@@ -69,7 +69,7 @@ func SetAdmitter(admissionCheckName string, admitter admission.Admitter) admitte
 			m.logger.Info("Removed old admitter for AdmissionCheck", "admissionCheck", admissionCheckName)
 		}
 
-		ctx, cancel := context.WithCancel(ctx)
+		subCtx, cancel := context.WithCancel(ctx)
 		m.admitters[admissionCheckName] = &AdmitterEntry{
 			AdmissionCheckName: admissionCheckName,
 			Admitter:           admitter,
@@ -80,9 +80,9 @@ func SetAdmitter(admissionCheckName string, admitter admission.Admitter) admitte
 		go func() {
 			admissionMetrics := monitoring.NewAdmissionMetrics(admissionCheckName)
 			for {
-				err := admitter.Sync(ctx, m.incomingResults)
-				if err == nil {
-					// Sync completed successfully (likely due to context cancellation)
+				err := admitter.Sync(subCtx, m.incomingResults)
+				if err == nil || err == context.Canceled {
+					m.logger.Info("Admitter sync completed", "admissionCheck", admissionCheckName)
 					return
 				}
 

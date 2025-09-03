@@ -93,7 +93,7 @@ func (r *AdmissionCheckReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 				return ctrl.Result{}, err
 			}
 		}
-		return reconcile.Result{}, client.IgnoreNotFound(err)
+		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
 	// Only handle our controller
@@ -149,7 +149,7 @@ func (r *AdmissionCheckReconciler) updateAdmissionCheckStatus(ctx context.Contex
 		apimeta.SetStatusCondition(&ac.Status.Conditions, newCondition)
 		err := r.Status().Update(ctx, ac)
 		if err != nil {
-			return ctrl.Result{RequeueAfter: time.Minute}, err
+			return ctrl.Result{}, err
 		}
 	}
 
