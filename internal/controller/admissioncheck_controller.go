@@ -153,7 +153,7 @@ func (r *AdmissionCheckReconciler) updateAdmissionCheckStatus(ctx context.Contex
 		}
 	}
 
-	return ctrl.Result{}, nil
+	return ctrl.Result{Requeue: false}, nil
 }
 
 // ControllerNamePredicate returns a predicate that filters for admission checks
