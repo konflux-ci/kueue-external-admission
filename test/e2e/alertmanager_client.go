@@ -213,3 +213,70 @@ func (c *AlertManagerTestClient) GetSilences(ctx context.Context) ([]*models.Get
 
 	return resp.Payload, nil
 }
+
+// DeleteSilencesByAlertName deletes all silences that match the given alert name
+// This is useful for cleaning up silences for specific alerts in e2e tests
+func (c *AlertManagerTestClient) DeleteSilencesByAlertName(ctx context.Context, alertName string) error {
+	// Get all active silences
+	silences, err := c.GetSilences(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get silences: %w", err)
+	}
+
+	var deletedCount int
+	var errors []error
+
+	// Find and delete silences that match the alert name
+	for _, silence := range silences {
+		if silence == nil || silence.Status == nil {
+			continue
+		}
+
+		// Check if this silence matches the alert name
+		if c.silenceMatchesAlertName(silence, alertName) {
+			if silence.ID != nil {
+				err := c.DeleteSilence(ctx, *silence.ID)
+				if err != nil {
+					errors = append(errors, fmt.Errorf("failed to delete silence %s: %w", *silence.ID, err))
+				} else {
+					deletedCount++
+					c.logger.Info("Deleted silence for alert", "alertName", alertName, "silenceID", *silence.ID)
+				}
+			}
+		}
+	}
+
+	// Log summary
+	c.logger.Info("Completed deletion of silences by alert name",
+		"alertName", alertName,
+		"deletedCount", deletedCount,
+		"errorCount", len(errors),
+	)
+
+	// Return error if any deletions failed
+	if len(errors) > 0 {
+		return fmt.Errorf("failed to delete %d out of %d silences for alert %s: %v",
+			len(errors), deletedCount+len(errors), alertName, errors)
+	}
+
+	return nil
+}
+
+// silenceMatchesAlertName checks if a silence matches the given alert name
+func (c *AlertManagerTestClient) silenceMatchesAlertName(silence *models.GettableSilence, alertName string) bool {
+	if silence == nil || silence.Matchers == nil {
+		return false
+	}
+
+	// Check if any of the silence's matchers match the alert name
+	for _, matcher := range silence.Matchers {
+		if matcher != nil && matcher.Name != nil && matcher.Value != nil {
+			// Check if this matcher is for the alertname label with the target value
+			if *matcher.Name == "alertname" && *matcher.Value == alertName {
+				return true
+			}
+		}
+	}
+
+	return false
+}

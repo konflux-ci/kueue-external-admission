@@ -26,8 +26,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-logr/logr"
+	"github.com/go-logr/zapr"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -64,9 +68,28 @@ const metricsRoleBindingName = "kueue-external-admission-metrics-binding"
 
 const metricsReaderClusterRoleName = "kueue-external-admission-metrics-reader"
 
+// createGinkgoLogger creates a logger that writes to GinkgoWriter
+func createGinkgoLogger() logr.Logger {
+	// Create a zap logger that writes to GinkgoWriter
+	config := zap.NewDevelopmentConfig()
+	config.OutputPaths = []string{"stdout"}
+	config.ErrorOutputPaths = []string{"stderr"}
+
+	// Create a custom core that writes to GinkgoWriter
+	core := zapcore.NewCore(
+		zapcore.NewConsoleEncoder(config.EncoderConfig),
+		zapcore.AddSync(GinkgoWriter),
+		zapcore.DebugLevel,
+	)
+
+	zapLogger := zap.New(core).WithOptions(zap.AddCallerSkip(1))
+	return zapr.NewLogger(zapLogger)
+}
+
 var _ = Describe("Manager", Ordered, func() {
 	var controllerPodName string
 	var k8sClient client.Client
+	var alertManagerClient *AlertManagerTestClient
 	nsName := "test-ns"
 
 	// Before running the tests, set up the environment by creating the namespace,
@@ -100,6 +123,13 @@ var _ = Describe("Manager", Ordered, func() {
 		// The context provided by the callback is closed when it's completed,
 		// so we need to create another context for the client.
 		k8sClient = getK8sClientOrDie(context.Background())
+
+		By("Creating a AlertManager client")
+		alertManagerClient, err = NewAlertManagerTestClient(
+			"http://alertmanager-operated.monitoring.svc.cluster.local:9093/api/v2",
+			createGinkgoLogger(),
+		)
+		Expect(err).NotTo(HaveOccurred())
 
 		By(fmt.Sprintf("Creating a namespace: %s", nsName), func() {
 			ns := &corev1.Namespace{
@@ -326,11 +356,16 @@ var _ = Describe("Manager", Ordered, func() {
 		// ))
 		//
 		// Example of using AlertManager functionality in e2e tests:
-		// alertManagerClient, err := NewAlertManagerTestClient("http://localhost:9093", logger)
+		// alertManagerClient, err := NewAlertManagerTestClient("http://localhost:9093", createGinkgoLogger())
 		// Expect(err).NotTo(HaveOccurred())
+		//
+		// // Create a silence for a specific alert
 		// silenceID, err := alertManagerClient.SilenceAlert(ctx, "TestAlert", 5*time.Minute, "E2E test silence", nil)
 		// Expect(err).NotTo(HaveOccurred())
 		// defer alertManagerClient.DeleteSilence(ctx, silenceID)
+		//
+		// // Or clean up all silences for an alert (useful for test cleanup)
+		// defer alertManagerClient.DeleteSilencesByAlertName(ctx, "TestAlert")
 
 		It("should handle AlertManager admission check integration", func(ctx context.Context) {
 			admissionCheckName := "test-alertmanager-check"
@@ -411,23 +446,34 @@ var _ = Describe("Manager", Ordered, func() {
 			}
 			Expect(k8sClient.Create(ctx, workload)).To(Succeed())
 
-			By("verifying the workload admission check status")
-			Eventually(func(g Gomega) {
-				var createdWorkload kueue.Workload
-				err := k8sClient.Get(ctx, client.ObjectKey{Name: workload.Name, Namespace: nsName}, &createdWorkload)
-				g.Expect(err).NotTo(HaveOccurred())
+			By("Ensure there is not silence for the test alert")
+			Expect(alertManagerClient.DeleteSilencesByAlertName(ctx, "TestAlertAlwaysFiring")).To(Succeed())
 
-				var found bool
-				for _, check := range createdWorkload.Status.AdmissionChecks {
-					if check.Name == admissionCheckName {
-						found = true
-						g.Expect(check.State).To(Equal(kueue.CheckStateReady))
-						g.Expect(check.Message).To(ContainSubstring("approving workload"))
-						break
-					}
-				}
-				g.Expect(found).To(BeTrue(), "AdmissionCheck should be present in workload status")
-			}, 2*time.Minute).Should(Succeed())
+			By("verifying the workload admission check status is pending")
+			verifyWorkloadAdmissionCheckStatus(
+				ctx, k8sClient, workload.Name, nsName, admissionCheckName,
+				kueue.CheckStatePending, "denying workload",
+			)
+
+			By("creating a silence for the test alert")
+			silenceID, err := alertManagerClient.SilenceAlert(
+				ctx,
+				"TestAlertAlwaysFiring",
+				5*time.Minute,
+				"E2E test silence",
+				nil,
+			)
+			Expect(err).NotTo(HaveOccurred())
+			defer func() {
+				err := alertManagerClient.DeleteSilence(ctx, silenceID)
+				Expect(err).NotTo(HaveOccurred())
+			}()
+
+			By("verifying the workload admission check status is ready")
+			verifyWorkloadAdmissionCheckStatus(
+				ctx, k8sClient, workload.Name, nsName, admissionCheckName,
+				kueue.CheckStateReady, "approving workload",
+			)
 
 		})
 	})
@@ -479,6 +525,31 @@ func getK8sClientOrDie(ctx context.Context) client.Client {
 	Expect(err).ToNot(HaveOccurred(), "failed to create client")
 
 	return k8sClient
+}
+
+// verifyWorkloadAdmissionCheckStatus verifies that a workload has the expected admission check status
+func verifyWorkloadAdmissionCheckStatus(
+	ctx context.Context, k8sClient client.Client, workloadName, namespace, admissionCheckName string,
+	expectedState kueue.CheckState, expectedMessageSubstring string,
+) {
+	Eventually(func(g Gomega) {
+		var createdWorkload kueue.Workload
+		err := k8sClient.Get(ctx, client.ObjectKey{Name: workloadName, Namespace: namespace}, &createdWorkload)
+		g.Expect(err).NotTo(HaveOccurred())
+
+		var found bool
+		for _, check := range createdWorkload.Status.AdmissionChecks {
+			if check.Name == admissionCheckName {
+				found = true
+				g.Expect(check.State).To(Equal(expectedState))
+				if expectedMessageSubstring != "" {
+					g.Expect(check.Message).To(ContainSubstring(expectedMessageSubstring))
+				}
+				break
+			}
+		}
+		g.Expect(found).To(BeTrue(), "AdmissionCheck should be present in workload status")
+	}, 2*time.Minute).Should(Succeed())
 }
 
 // serviceAccountToken returns a token for the specified service account in the given namespace.
