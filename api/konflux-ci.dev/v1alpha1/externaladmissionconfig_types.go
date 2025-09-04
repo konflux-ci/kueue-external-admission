@@ -72,8 +72,8 @@ type AlertManagerConnectionConfig struct {
 	// TLS configuration for AlertManager connection
 	TLS *TLSConfig `json:"tls,omitempty"`
 
-	// BasicAuth configuration for AlertManager connection
-	BasicAuth *BasicAuthConfig `json:"basicAuth,omitempty"`
+	// BearerToken configuration for AlertManager connection
+	BearerToken *BearerTokenConfig `json:"bearerToken,omitempty"`
 }
 
 // TLSConfig contains TLS configuration
@@ -91,13 +91,10 @@ type TLSConfig struct {
 	KeyFile string `json:"keyFile,omitempty"`
 }
 
-// BasicAuthConfig contains basic authentication configuration
-type BasicAuthConfig struct {
-	// Username for basic authentication
-	Username string `json:"username"`
-
-	// PasswordSecret references a secret containing the password
-	PasswordSecret SecretReference `json:"passwordSecret"`
+// BearerTokenConfig contains bearer token authentication configuration
+type BearerTokenConfig struct {
+	// TokenFile is the path to a file containing the bearer token
+	TokenFile string `json:"tokenFile"`
 }
 
 // SecretReference references a secret

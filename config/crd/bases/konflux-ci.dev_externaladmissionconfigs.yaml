@@ -100,30 +100,16 @@ spec:
                       connection:
                         description: Connection contains AlertManager connection details
                         properties:
-                          basicAuth:
-                            description: BasicAuth configuration for AlertManager
+                          bearerToken:
+                            description: BearerToken configuration for AlertManager
                               connection
                             properties:
-                              passwordSecret:
-                                description: PasswordSecret references a secret containing
-                                  the password
-                                properties:
-                                  key:
-                                    description: Key within the secret
-                                    type: string
-                                  name:
-                                    description: Name of the secret
-                                    type: string
-                                required:
-                                - key
-                                - name
-                                type: object
-                              username:
-                                description: Username for basic authentication
+                              tokenFile:
+                                description: TokenFile is the path to a file containing
+                                  the bearer token
                                 type: string
                             required:
-                            - passwordSecret
-                            - username
+                            - tokenFile
                             type: object
                           timeout:
                             default: 10s

@@ -9,6 +9,9 @@ spec:
       connection:
         url: "http://alertmanager-operated.monitoring.svc.cluster.local:9093"
         timeout: "10s"
+        # Example: Bearer token authentication using a file
+        # bearerToken:
+        #   tokenFile: "/var/run/secrets/kubernetes.io/serviceaccount/token"
       alertFilters:
         - alertNames:
             - "HighCPUUsage"

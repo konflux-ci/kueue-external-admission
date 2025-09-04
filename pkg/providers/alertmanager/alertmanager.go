@@ -19,8 +19,11 @@ package alertmanager
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/url"
+	"os"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -46,16 +49,36 @@ type admitter struct {
 
 var _ admission.Admitter = &admitter{}
 
-// NewAdmitter creates a new AlertManager client using the official API v2 client
-func NewAdmitter(
-	config *konfluxciv1alpha1.AlertManagerProviderConfig,
-	logger logr.Logger,
-	admissionCheckName string,
-) (admission.Admitter, error) {
-	// Parse the AlertManager URL
-	u, err := url.Parse(config.Connection.URL)
+// readBearerToken reads a bearer token from a file
+func readBearerToken(tokenFile string) (string, error) {
+	// Read token from file
+	file, err := os.Open(tokenFile)
 	if err != nil {
-		return nil, fmt.Errorf("invalid AlertManager URL %q: %w", config.Connection.URL, err)
+		return "", fmt.Errorf("failed to open token file %q: %w", tokenFile, err)
+	}
+	defer func() {
+		_ = file.Close() // Ignore close error as the token has already been read successfully
+	}()
+
+	tokenBytes, err := io.ReadAll(file)
+	if err != nil {
+		return "", fmt.Errorf("failed to read token file %q: %w", tokenFile, err)
+	}
+
+	token := strings.TrimSpace(string(tokenBytes))
+	if token == "" {
+		return "", fmt.Errorf("token file %q is empty", tokenFile)
+	}
+
+	return token, nil
+}
+
+// NewAlertManagerClient creates a new AlertManager API client using the official API v2 client
+func NewAlertManagerClient(alertManagerURL string, bearerTokenFile *string) (*alertclient.AlertmanagerAPI, error) {
+	// Parse the AlertManager URL
+	u, err := url.Parse(alertManagerURL)
+	if err != nil {
+		return nil, fmt.Errorf("invalid AlertManager URL %q: %w", alertManagerURL, err)
 	}
 
 	// Create transport config
@@ -68,8 +91,38 @@ func NewAdmitter(
 	transport := httptransport.New(transportConfig.Host, transportConfig.BasePath, transportConfig.Schemes)
 	// Note: Timeout is handled by the transport config and runtime
 
+	// Configure authentication if provided
+	if bearerTokenFile != nil {
+		// Read token from file
+		token, err := readBearerToken(*bearerTokenFile)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read bearer token from file: %w", err)
+		}
+		// Set the Authorization header for bearer token authentication
+		transport.DefaultAuthentication = httptransport.BearerToken(token)
+	}
+
 	// Create the AlertManager API client
 	client := alertclient.New(transport, strfmt.Default)
+
+	return client, nil
+}
+
+// NewAdmitter creates a new AlertManager client using the official API v2 client
+func NewAdmitter(
+	config *konfluxciv1alpha1.AlertManagerProviderConfig,
+	logger logr.Logger,
+	admissionCheckName string,
+) (admission.Admitter, error) {
+	// Create the AlertManager API client
+	var bearerTokenFile *string
+	if config.Connection.BearerToken != nil {
+		bearerTokenFile = &config.Connection.BearerToken.TokenFile
+	}
+	client, err := NewAlertManagerClient(config.Connection.URL, bearerTokenFile)
+	if err != nil {
+		return nil, err
+	}
 
 	// Collect all alert names from all filters
 	var allAlertNames []string
