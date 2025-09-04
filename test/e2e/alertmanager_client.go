@@ -72,7 +72,7 @@ func (c *AlertManagerTestClient) SilenceAlert(
 	// Create the basic matcher for the alert name
 	matchers := models.Matchers{
 		{
-			Name:    &alertName,
+			Name:    ptr.To("alertname"),
 			Value:   &alertName,
 			IsRegex: ptr.To(false), // Exact match, not regex
 			IsEqual: ptr.To(true),  // Equal match

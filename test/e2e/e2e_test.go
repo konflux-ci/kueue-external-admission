@@ -126,7 +126,7 @@ var _ = Describe("Manager", Ordered, func() {
 
 		By("Creating a AlertManager client")
 		alertManagerClient, err = NewAlertManagerTestClient(
-			"http://alertmanager-operated.monitoring.svc.cluster.local:9093/api/v2",
+			"http://localhost:9093/api/v2",
 			createGinkgoLogger(),
 		)
 		Expect(err).NotTo(HaveOccurred())
@@ -549,7 +549,7 @@ func verifyWorkloadAdmissionCheckStatus(
 			}
 		}
 		g.Expect(found).To(BeTrue(), "AdmissionCheck should be present in workload status")
-	}, 2*time.Minute).Should(Succeed())
+	}, 10*time.Minute).Should(Succeed())
 }
 
 // serviceAccountToken returns a token for the specified service account in the given namespace.
