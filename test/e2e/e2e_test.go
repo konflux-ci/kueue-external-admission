@@ -42,6 +42,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 
+	konfluxcidevv1alpha1 "github.com/konflux-ci/kueue-external-admission/api/konflux-ci.dev/v1alpha1"
 	"github.com/konflux-ci/kueue-external-admission/pkg/constant"
 	"github.com/konflux-ci/kueue-external-admission/test/utils"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
@@ -323,6 +324,13 @@ var _ = Describe("Manager", Ordered, func() {
 		//    fmt.Sprintf(`controller_runtime_reconcile_total{controller="%s",result="success"} 1`,
 		//    strings.ToLower(<Kind>),
 		// ))
+		//
+		// Example of using AlertManager functionality in e2e tests:
+		// alertManagerClient, err := NewAlertManagerTestClient("http://localhost:9093", logger)
+		// Expect(err).NotTo(HaveOccurred())
+		// silenceID, err := alertManagerClient.SilenceAlert(ctx, "TestAlert", 5*time.Minute, "E2E test silence", nil)
+		// Expect(err).NotTo(HaveOccurred())
+		// defer alertManagerClient.DeleteSilence(ctx, silenceID)
 
 		It("should handle AlertManager admission check integration", func(ctx context.Context) {
 			admissionCheckName := "test-alertmanager-check"
@@ -429,6 +437,7 @@ func getK8sClientOrDie(ctx context.Context) client.Client {
 	scheme := runtime.NewScheme()
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(kueue.AddToScheme(scheme))
+	utilruntime.Must(konfluxcidevv1alpha1.AddToScheme(scheme))
 
 	cfg := ctrl.GetConfigOrDie()
 
@@ -446,6 +455,9 @@ func getK8sClientOrDie(ctx context.Context) client.Client {
 
 	_, err = k8sCache.GetInformer(ctx, &kueue.LocalQueue{})
 	Expect(err).ToNot(HaveOccurred(), "failed to setup informer for local queues")
+
+	_, err = k8sCache.GetInformer(ctx, &konfluxcidevv1alpha1.ExternalAdmissionConfig{})
+	Expect(err).ToNot(HaveOccurred(), "failed to setup informer for external admission configs")
 
 	go func() {
 		if err := k8sCache.Start(ctx); err != nil {
