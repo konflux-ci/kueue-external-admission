@@ -61,8 +61,6 @@ func (m *Enqueuer) enqueuerLoop(ctx context.Context) {
 			m.logger.Info("enqueuer: Admission result changed", "admissionResult", admissionResult)
 			m.checkAndEnqueueEvents(ctx, admissionResult)
 		}
-		// TODO: periodically enqueue all workloads that didn't start,
-		// has quota reservation and is not admitted yet and that have admission checks configured relevant to us
 	}
 }
 
@@ -79,7 +77,9 @@ func (m *Enqueuer) checkAndEnqueueEvents(ctx context.Context, admissionResult re
 	}
 
 	for _, wl := range workloads.Items {
-		// Enqueue generic event to trigger workload reconciliation
+		// Enqueue generic event to trigger workload reconciliation,
+		// this will trigger the workload controller to reconcile the workload
+		// and update the AdmissionCheck status
 		select {
 		case m.eventCh <- event.GenericEvent{Object: &wl}:
 			m.logger.Info("Enqueuing event for workload", "workload", wl.Name)
