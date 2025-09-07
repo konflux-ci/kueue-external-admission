@@ -11,6 +11,9 @@ import (
 	"github.com/konflux-ci/kueue-external-admission/pkg/admission/result"
 )
 
+// AdmitterManager is an actor that manages individual admission check admitters.
+// It follows the actor pattern by running in a single goroutine and processing
+// commands through channels to add, remove, and list admitters.
 type AdmitterManager struct {
 	logger           logr.Logger
 	admitters        map[string]*AdmitterEntry
@@ -18,14 +21,26 @@ type AdmitterManager struct {
 	incomingResults  chan<- result.AsyncAdmissionResult
 }
 
+// AdmitterEntry represents a registered admitter with its associated metadata.
 type AdmitterEntry struct {
-	Admitter           admission.Admitter
-	AdmissionCheckName string
-	Cancel             context.CancelFunc
+	Admitter           admission.Admitter // The admitter implementation
+	AdmissionCheckName string             // Name of the admission check
+	Cancel             context.CancelFunc // Function to cancel the admitter's context
 }
 
+// admitterCmdFunc is a function type that represents commands sent to the AdmitterManager actor.
+// Each command function receives the AdmitterManager instance and a context for execution.
 type admitterCmdFunc func(admitterManager *AdmitterManager, ctx context.Context)
 
+// NewAdmitterManager creates a new AdmitterManager actor.
+//
+// Parameters:
+//   - logger: The logger instance for structured logging
+//   - admitterCommands: Channel for receiving commands to manage admitters
+//   - incomingResults: Channel for sending admission results to the ResultManager
+//
+// Returns:
+//   - *AdmitterManager: A new AdmitterManager instance with initialized channels
 func NewAdmitterManager(
 	logger logr.Logger,
 	admitterCommands chan admitterCmdFunc,
@@ -39,6 +54,12 @@ func NewAdmitterManager(
 	}
 }
 
+// Run starts the AdmitterManager actor's main event loop.
+// This method processes commands from the admitterCommands channel and manages
+// the lifecycle of individual admitters.
+//
+// Parameters:
+//   - ctx: Context for cancellation and timeout control
 func (m *AdmitterManager) Run(ctx context.Context) {
 	for {
 		select {
@@ -54,6 +75,16 @@ func (m *AdmitterManager) Run(ctx context.Context) {
 	}
 }
 
+// SetAdmitter creates a command function to register a new admitter with the AdmitterManager.
+// If an admitter with the same name already exists and is functionally equivalent, it will be skipped.
+// If a different admitter exists, it will be replaced.
+//
+// Parameters:
+//   - admissionCheckName: The name of the admission check to register
+//   - admitter: The admitter implementation that will handle admission decisions
+//
+// Returns:
+//   - admitterCmdFunc: A command function that can be sent to the AdmitterManager
 func SetAdmitter(admissionCheckName string, admitter admission.Admitter) admitterCmdFunc {
 	return func(m *AdmitterManager, ctx context.Context) {
 		entry, ok := m.admitters[admissionCheckName]
@@ -108,6 +139,14 @@ func SetAdmitter(admissionCheckName string, admitter admission.Admitter) admitte
 	}
 }
 
+// RemoveAdmitter creates a command function to remove an existing admitter from the AdmitterManager.
+// This will cancel the admitter's context and clean up associated resources.
+//
+// Parameters:
+//   - admissionCheckName: The name of the admission check to remove
+//
+// Returns:
+//   - admitterCmdFunc: A command function that can be sent to the AdmitterManager
 func RemoveAdmitter(admissionCheckName string) admitterCmdFunc {
 	return func(m *AdmitterManager, ctx context.Context) {
 		entry, ok := m.admitters[admissionCheckName]
@@ -123,6 +162,12 @@ func RemoveAdmitter(admissionCheckName string) admitterCmdFunc {
 	}
 }
 
+// ListAdmitters creates a command function to retrieve the list of currently registered admitters.
+// This is used by the ResultManager to identify which admitters are still active.
+//
+// Returns:
+//   - admitterCmdFunc: A command function that can be sent to the AdmitterManager
+//   - A channel that will receive a map of admitter names to their active status
 func ListAdmitters() (admitterCmdFunc, <-chan map[string]bool) {
 	resultChan := make(chan map[string]bool, 1)
 	return func(m *AdmitterManager, ctx context.Context) {

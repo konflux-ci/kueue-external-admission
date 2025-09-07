@@ -12,6 +12,10 @@ import (
 	"github.com/konflux-ci/kueue-external-admission/pkg/admission/result"
 )
 
+// ResultManager is an actor that manages admission results and notifications.
+// It follows the actor pattern by running in a single goroutine and processing
+// results from admitters, maintaining a registry of current results, and sending
+// notifications when results change.
 type ResultManager struct {
 	logger              logr.Logger
 	resultsRegistry     map[string]result.AsyncAdmissionResult
@@ -22,8 +26,22 @@ type ResultManager struct {
 	cleanupChan         <-chan time.Time
 }
 
+// resultCmdFunc is a function type that represents commands sent to the ResultManager actor.
+// Each command function receives the ResultManager instance and a context for execution.
 type resultCmdFunc func(m *ResultManager, ctx context.Context)
 
+// NewResultManager creates a new ResultManager actor.
+//
+// Parameters:
+//   - logger: The logger instance for structured logging
+//   - admitterCommands: Channel for sending commands to the AdmitterManager
+//   - incomingResults: Channel for receiving admission results from admitters
+//   - resultNotifications: Channel for sending result change notifications
+//   - resultCmd: Channel for receiving commands to manage results
+//   - cleanupChan: Channel for receiving cleanup timer signals
+//
+// Returns:
+//   - *ResultManager: A new ResultManager instance with initialized channels
 func NewResultManager(logger logr.Logger,
 	admitterCommands chan<- admitterCmdFunc,
 	incomingResults <-chan result.AsyncAdmissionResult,
@@ -42,6 +60,11 @@ func NewResultManager(logger logr.Logger,
 	}
 }
 
+// Run starts the ResultManager actor's main event loop.
+// This method processes incoming results, commands, and cleanup signals.
+//
+// Parameters:
+//   - ctx: Context for cancellation and timeout control
 func (m *ResultManager) Run(ctx context.Context) {
 	for {
 		m.logger.Info("Select loop iteration", "registrySize", len(m.resultsRegistry))
@@ -62,6 +85,11 @@ func (m *ResultManager) Run(ctx context.Context) {
 	}
 }
 
+// handleNewResult processes a new admission result from an admitter.
+// It updates the results registry and sends notifications if the result has changed.
+//
+// Parameters:
+//   - newResult: The new admission result to process
 func (m *ResultManager) handleNewResult(newResult result.AsyncAdmissionResult) {
 	admissionCheckName := newResult.AdmissionResult.CheckName()
 	m.logger.Info(
@@ -92,6 +120,8 @@ func (m *ResultManager) handleNewResult(newResult result.AsyncAdmissionResult) {
 	m.resultsRegistry[admissionCheckName] = newResult
 
 	// Send notification if the result changed and there is no error
+	// Note: Using reflect.DeepEqual here is appropriate as we need to compare
+	// the entire AsyncAdmissionResult struct including nested fields
 	changed := !reflect.DeepEqual(newResult, lastResult)
 	if changed {
 		if newResult.Error == nil {
@@ -111,6 +141,12 @@ func (m *ResultManager) handleNewResult(newResult result.AsyncAdmissionResult) {
 	}
 }
 
+// removeStaleResults removes admission results for admitters that are no longer active.
+// It queries the AdmitterManager to get the list of active admitters and removes
+// results for any admitters that are no longer registered.
+//
+// Parameters:
+//   - admitterCommands: Channel for sending commands to the AdmitterManager
 func (m *ResultManager) removeStaleResults(admitterCommands chan<- admitterCmdFunc) {
 	m.logger.Info(
 		"REMOVING stale results",
@@ -134,6 +170,13 @@ func (m *ResultManager) removeStaleResults(admitterCommands chan<- admitterCmdFu
 	m.logger.Info("AFTER removal", "registrySize", len(m.resultsRegistry), "initialRegistrySize", initialRegistrySize)
 }
 
+// GetSnapshot creates a command function to retrieve a snapshot of all current admission results.
+// This is used by the AdmissionManager to get the current state of all admission results
+// for making admission decisions.
+//
+// Returns:
+//   - resultCmdFunc: A command function that can be sent to the ResultManager
+//   - A channel that will receive the results snapshot
 func GetSnapshot() (resultCmdFunc, <-chan map[string]result.AsyncAdmissionResult) {
 	resultChan := make(chan map[string]result.AsyncAdmissionResult, 1)
 	return func(m *ResultManager, ctx context.Context) {
