@@ -48,7 +48,8 @@ type AdmissionManager struct {
 	incomingResults     chan result.AsyncAdmissionResult // Channel for receiving admission results from admitters
 	resultNotifications chan result.AdmissionResult      // Channel for broadcasting result change notifications
 	resultCmd           chan resultCmdFunc               // Channel for sending commands to ResultManager actor
-	coldStart           time.Duration                    // Duration to wait before allowing admissions (startup grace period)
+	coldStart           time.Duration                    // Duration to wait before allowing admissions (startup
+	// grace period)
 }
 
 // NewManager creates a new AdmissionManager actor.
