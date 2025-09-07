@@ -1,19 +1,11 @@
-/*
-Copyright 2024.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
-
+// Package alertmanager provides an admission check implementation that integrates
+// with Prometheus AlertManager. It monitors active alerts and makes admission
+// decisions based on whether specific alerts are currently firing.
+//
+// The AlertManager admitter queries the AlertManager API v2 to check for active
+// alerts that match configured filters. If any matching alerts are firing,
+// workloads are denied admission. If no matching alerts are firing, workloads
+// are allowed admission.
 package alertmanager
 
 import (
@@ -38,18 +30,29 @@ import (
 	"github.com/konflux-ci/kueue-external-admission/pkg/admission/result"
 )
 
-// admitter implements the watcher.admitter interface using AlertManager API
+// admitter implements the admission.Admitter interface using AlertManager API v2.
+// It monitors active alerts and makes admission decisions based on whether
+// configured alert filters are currently firing.
 type admitter struct {
-	client             *alertclient.AlertmanagerAPI
-	config             *konfluxciv1alpha1.AlertManagerProviderConfig
-	alertFilters       []string
-	logger             logr.Logger
-	admissionCheckName string
+	client             *alertclient.AlertmanagerAPI                  // AlertManager API v2 client
+	config             *konfluxciv1alpha1.AlertManagerProviderConfig // Configuration for the AlertManager provider
+	alertFilters       []string                                      // List of alert names to monitor
+	logger             logr.Logger                                   // Logger for structured logging
+	admissionCheckName string                                        // Name of the admission check
 }
 
+// Compile-time check to ensure admitter implements admission.Admitter interface
 var _ admission.Admitter = &admitter{}
 
-// readBearerToken reads a bearer token from a file
+// readBearerToken reads a bearer token from a file for authentication.
+// The token file should contain a single line with the bearer token.
+//
+// Parameters:
+//   - tokenFile: Path to the file containing the bearer token
+//
+// Returns:
+//   - string: The bearer token read from the file
+//   - error: Returns an error if the file cannot be read or is empty
 func readBearerToken(tokenFile string) (string, error) {
 	// Read token from file
 	file, err := os.Open(tokenFile)
@@ -73,7 +76,16 @@ func readBearerToken(tokenFile string) (string, error) {
 	return token, nil
 }
 
-// NewAlertManagerClient creates a new AlertManager API client using the official API v2 client
+// NewAlertManagerClient creates a new AlertManager API v2 client with optional authentication.
+// It configures the HTTP transport and authentication based on the provided parameters.
+//
+// Parameters:
+//   - alertManagerURL: The URL of the AlertManager instance (e.g., "http://alertmanager:9093")
+//   - bearerTokenFile: Optional path to a file containing a bearer token for authentication
+//
+// Returns:
+//   - *alertclient.AlertmanagerAPI: Configured AlertManager API v2 client
+//   - error: Returns an error if the URL is invalid or authentication setup fails
 func NewAlertManagerClient(alertManagerURL string, bearerTokenFile *string) (*alertclient.AlertmanagerAPI, error) {
 	// Parse the AlertManager URL
 	u, err := url.Parse(alertManagerURL)
@@ -108,7 +120,18 @@ func NewAlertManagerClient(alertManagerURL string, bearerTokenFile *string) (*al
 	return client, nil
 }
 
-// NewAdmitter creates a new AlertManager client using the official API v2 client
+// NewAdmitter creates a new AlertManager admitter instance.
+// It initializes the AlertManager API client and processes the configuration
+// to extract alert filters for monitoring.
+//
+// Parameters:
+//   - config: AlertManager provider configuration including connection details and alert filters
+//   - logger: Logger for structured logging
+//   - admissionCheckName: Name of the admission check this admitter will handle
+//
+// Returns:
+//   - admission.Admitter: A new AlertManager admitter instance
+//   - error: Returns an error if client creation or configuration processing fails
 func NewAdmitter(
 	config *konfluxciv1alpha1.AlertManagerProviderConfig,
 	logger logr.Logger,
@@ -139,8 +162,17 @@ func NewAdmitter(
 	}, nil
 }
 
-// Sync runs the admission check in a loop and sends the results to the channel
-// This method blocks until the context is cancelled
+// Sync runs the admission check in a loop and sends the results to the channel.
+// This method implements the admission.Admitter interface and blocks until the context is cancelled.
+// It periodically queries AlertManager for active alerts and sends admission results
+// based on whether configured alert filters are firing.
+//
+// Parameters:
+//   - ctx: Context for cancellation and timeout control
+//   - results: Channel for sending admission results asynchronously
+//
+// Returns:
+//   - error: Returns context.Err() when the context is cancelled
 func (a *admitter) Sync(ctx context.Context, results chan<- result.AsyncAdmissionResult) error {
 	// Use configured interval or default to 30 seconds
 	interval := 30 * time.Second
@@ -175,8 +207,16 @@ func (a *admitter) Sync(ctx context.Context, results chan<- result.AsyncAdmissio
 	}
 }
 
-// ShouldAdmit implements admission.Admitter interface
-// Returns an AdmissionResult indicating whether to admit and any firing alerts
+// shouldAdmit performs a single admission check by querying AlertManager for active alerts.
+// It returns an AdmissionResult indicating whether to admit the workload based on
+// whether any configured alert filters are currently firing.
+//
+// Parameters:
+//   - ctx: Context for cancellation and timeout control
+//
+// Returns:
+//   - result.AdmissionResult: The admission decision with details about firing alerts
+//   - error: Returns an error if the AlertManager query fails
 func (a *admitter) shouldAdmit(ctx context.Context) (result.AdmissionResult, error) {
 	builder := result.NewAdmissionResultBuilder(a.admissionCheckName)
 	builder.SetAdmissionDenied()
@@ -214,7 +254,15 @@ func (a *admitter) shouldAdmit(ctx context.Context) (result.AdmissionResult, err
 	return result, nil
 }
 
-// getActiveAlerts queries the AlertManager v2 API for active alerts using the official client
+// getActiveAlerts queries the AlertManager v2 API for all active alerts.
+// It uses the official AlertManager API v2 client to retrieve current alert status.
+//
+// Parameters:
+//   - ctx: Context for cancellation and timeout control
+//
+// Returns:
+//   - []*models.GettableAlert: List of all active alerts from AlertManager
+//   - error: Returns an error if the API query fails
 func (a *admitter) getActiveAlerts(ctx context.Context) ([]*models.GettableAlert, error) {
 	params := alert.NewGetAlertsParamsWithContext(ctx).WithDefaults()
 
@@ -227,7 +275,14 @@ func (a *admitter) getActiveAlerts(ctx context.Context) ([]*models.GettableAlert
 	return resp.Payload, nil
 }
 
-// findFiringAlerts filters alerts to find those that are currently firing and match our filters
+// findFiringAlerts filters alerts to find those that are currently firing and match configured filters.
+// It checks each alert's state and applies the configured alert name filters.
+//
+// Parameters:
+//   - alerts: List of all alerts from AlertManager
+//
+// Returns:
+//   - []*models.GettableAlert: List of alerts that are firing and match the configured filters
 func (a *admitter) findFiringAlerts(alerts []*models.GettableAlert) []*models.GettableAlert {
 	var firingAlerts []*models.GettableAlert
 
@@ -250,7 +305,14 @@ func (a *admitter) findFiringAlerts(alerts []*models.GettableAlert) []*models.Ge
 	return firingAlerts
 }
 
-// matchesFilters checks if an alert matches any of the configured filters
+// matchesFilters checks if an alert matches any of the configured alert name filters.
+// Currently supports exact matching on the "alertname" label.
+//
+// Parameters:
+//   - alert: The alert to check against configured filters
+//
+// Returns:
+//   - bool: True if the alert matches any configured filter, false otherwise
 func (a *admitter) matchesFilters(alert *models.GettableAlert) bool {
 	if alert.Labels == nil {
 		return false
@@ -269,7 +331,14 @@ func (a *admitter) matchesFilters(alert *models.GettableAlert) bool {
 	return false
 }
 
-// getAlertNames extracts alert names from alerts for logging
+// getAlertNames extracts alert names from a list of alerts for logging purposes.
+// It extracts the "alertname" label from each alert.
+//
+// Parameters:
+//   - alerts: List of alerts to extract names from
+//
+// Returns:
+//   - []string: List of alert names extracted from the alerts
 func (a *admitter) getAlertNames(alerts []*models.GettableAlert) []string {
 	var names []string
 	for _, alert := range alerts {
@@ -282,7 +351,15 @@ func (a *admitter) getAlertNames(alerts []*models.GettableAlert) []string {
 	return names
 }
 
-// GetFiringAlerts returns the names of currently firing alerts that match our filters
+// GetFiringAlerts returns the names of currently firing alerts that match configured filters.
+// This is a utility method that can be used to query the current state of firing alerts.
+//
+// Parameters:
+//   - ctx: Context for cancellation and timeout control
+//
+// Returns:
+//   - []string: List of names of currently firing alerts that match the filters
+//   - error: Returns an error if the AlertManager query fails
 func (a *admitter) GetFiringAlerts(ctx context.Context) ([]string, error) {
 	alerts, err := a.getActiveAlerts(ctx)
 	if err != nil {
@@ -301,7 +378,15 @@ func (a *admitter) GetFiringAlerts(ctx context.Context) ([]string, error) {
 	return firingAlerts, nil
 }
 
-// getAlertName extracts a meaningful name for the alert
+// getAlertName extracts a meaningful name for an alert from its labels.
+// It tries multiple strategies to find a suitable name: alertname label,
+// job:instance combination, or any other meaningful label combination.
+//
+// Parameters:
+//   - alert: The alert to extract a name from
+//
+// Returns:
+//   - string: A meaningful name for the alert, or "unknown-alert" if no suitable name is found
 func (a *admitter) getAlertName(alert *models.GettableAlert) string {
 	if alert.Labels == nil {
 		return "unknown-alert"
@@ -332,7 +417,14 @@ func (a *admitter) getAlertName(alert *models.GettableAlert) string {
 
 // Equal reports whether this AlertManager admitter is functionally equivalent to another admitter.
 // It compares the relevant configuration fields that determine the admitter's behavior,
-// but ignores internal state like HTTP clients, loggers, etc.
+// but ignores internal state like HTTP clients, loggers, etc. This is used by the
+// AdmitterManager to avoid unnecessary admitter replacements.
+//
+// Parameters:
+//   - other: Another admitter to compare against
+//
+// Returns:
+//   - bool: True if the admitters are functionally equivalent, false otherwise
 func (a *admitter) Equal(other admission.Admitter) bool {
 	// Type assertion to check if the other admitter is also an AlertManager admitter
 	otherAlertManager, ok := other.(*admitter)
