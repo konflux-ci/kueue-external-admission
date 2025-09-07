@@ -119,6 +119,36 @@ var _ = Describe("Manager", Ordered, func() {
 		_, err = utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Failed to deploy the controller-manager")
 
+		By("validating that the controller-manager pod is running as expected")
+		verifyControllerUp := func(g Gomega) {
+			// Get the name of the controller-manager pod
+			cmd := exec.Command("kubectl", "get",
+				"pods", "-l", "control-plane=controller-manager",
+				"-o", "go-template={{ range .items }}"+
+					"{{ if not .metadata.deletionTimestamp }}"+
+					"{{ .metadata.name }}"+
+					"{{ \"\\n\" }}{{ end }}{{ end }}",
+				"-n", namespace,
+			)
+
+			podOutput, err := utils.Run(cmd)
+			g.Expect(err).NotTo(HaveOccurred(), "Failed to retrieve controller-manager pod information")
+			podNames := utils.GetNonEmptyLines(podOutput)
+			g.Expect(podNames).To(HaveLen(1), "expected 1 controller pod running")
+			controllerPodName = podNames[0]
+			g.Expect(controllerPodName).To(ContainSubstring("controller-manager"))
+
+			// Validate the pod's status
+			cmd = exec.Command("kubectl", "get",
+				"pods", controllerPodName, "-o", "jsonpath={.status.phase}",
+				"-n", namespace,
+			)
+			output, err := utils.Run(cmd)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(output).To(Equal("Running"), "Incorrect controller-manager pod status")
+		}
+		Eventually(verifyControllerUp).Should(Succeed())
+
 		By("Creating a k8s client")
 		// The context provided by the callback is closed when it's completed,
 		// so we need to create another context for the client.
@@ -209,39 +239,7 @@ var _ = Describe("Manager", Ordered, func() {
 	SetDefaultEventuallyTimeout(2 * time.Minute)
 	SetDefaultEventuallyPollingInterval(time.Second)
 
-	Context("Manager", func() {
-		It("should run successfully", func() {
-			By("validating that the controller-manager pod is running as expected")
-			verifyControllerUp := func(g Gomega) {
-				// Get the name of the controller-manager pod
-				cmd := exec.Command("kubectl", "get",
-					"pods", "-l", "control-plane=controller-manager",
-					"-o", "go-template={{ range .items }}"+
-						"{{ if not .metadata.deletionTimestamp }}"+
-						"{{ .metadata.name }}"+
-						"{{ \"\\n\" }}{{ end }}{{ end }}",
-					"-n", namespace,
-				)
-
-				podOutput, err := utils.Run(cmd)
-				g.Expect(err).NotTo(HaveOccurred(), "Failed to retrieve controller-manager pod information")
-				podNames := utils.GetNonEmptyLines(podOutput)
-				g.Expect(podNames).To(HaveLen(1), "expected 1 controller pod running")
-				controllerPodName = podNames[0]
-				g.Expect(controllerPodName).To(ContainSubstring("controller-manager"))
-
-				// Validate the pod's status
-				cmd = exec.Command("kubectl", "get",
-					"pods", controllerPodName, "-o", "jsonpath={.status.phase}",
-					"-n", namespace,
-				)
-				output, err := utils.Run(cmd)
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(output).To(Equal("Running"), "Incorrect controller-manager pod status")
-			}
-			Eventually(verifyControllerUp).Should(Succeed())
-		})
-
+	Context("Manager metrics", func() {
 		It("should ensure the metrics endpoint is serving metrics", func() {
 			By("creating a ClusterRoleBinding for the service account to allow access to metrics")
 			cmd := exec.Command(
@@ -344,31 +342,13 @@ var _ = Describe("Manager", Ordered, func() {
 			))
 		})
 
-		// +kubebuilder:scaffold:e2e-webhooks-checks
+	})
 
-		// TODO: Customize the e2e test suite with scenarios specific to your project.
-		// Consider applying sample/CR(s) and check their status and/or verifying
-		// the reconciliation by using the metrics, i.e.:
-		// metricsOutput := getMetricsOutput()
-		// Expect(metricsOutput).To(ContainSubstring(
-		//    fmt.Sprintf(`controller_runtime_reconcile_total{controller="%s",result="success"} 1`,
-		//    strings.ToLower(<Kind>),
-		// ))
-		//
-		// Example of using AlertManager functionality in e2e tests:
-		// alertManagerClient, err := NewAlertManagerTestClient("http://localhost:9093", createGinkgoLogger())
-		// Expect(err).NotTo(HaveOccurred())
-		//
-		// // Create a silence for a specific alert
-		// silenceID, err := alertManagerClient.SilenceAlert(ctx, "TestAlert", 5*time.Minute, "E2E test silence", nil)
-		// Expect(err).NotTo(HaveOccurred())
-		// defer alertManagerClient.DeleteSilence(ctx, silenceID)
-		//
-		// // Or clean up all silences for an alert (useful for test cleanup)
-		// defer alertManagerClient.DeleteSilencesByAlertName(ctx, "TestAlert")
+	Context("AlertManager admission check basic integration", func() {
+		admissionCheckName := "test-alertmanager-check"
+		var workload *kueue.Workload
 
-		It("should handle AlertManager admission check integration", func(ctx context.Context) {
-			admissionCheckName := "test-alertmanager-check"
+		It("should apply test resources and verify the AdmissionCheck is Active", func(ctx context.Context) {
 
 			By("applying test resources using server-side apply")
 			cmd := exec.Command(
@@ -377,8 +357,9 @@ var _ = Describe("Manager", Ordered, func() {
 			)
 			output, err := utils.Run(cmd)
 			Expect(err).NotTo(HaveOccurred(), "Failed to apply test resources: %s", output)
+		})
 
-			By("verifying the AdmissionCheck is Active")
+		It("should verify the AdmissionCheck is Active", func(ctx context.Context) {
 			Eventually(func(g Gomega) {
 				var createdAdmissionCheck kueue.AdmissionCheck
 				err := k8sClient.Get(ctx, client.ObjectKey{Name: admissionCheckName}, &createdAdmissionCheck)
@@ -395,7 +376,9 @@ var _ = Describe("Manager", Ordered, func() {
 				)
 				g.Expect(currentCondition.Status).To(Equal(metav1.ConditionTrue))
 			}).Should(Succeed())
+		})
 
+		It("should verify the ClusterQueue is Active", func(ctx context.Context) {
 			By("verifying the ClusterQueue is Active")
 			Eventually(func(g Gomega) {
 				var createdClusterQueue kueue.ClusterQueue
@@ -410,9 +393,14 @@ var _ = Describe("Manager", Ordered, func() {
 				)
 				g.Expect(currentCondition.Status).To(Equal(metav1.ConditionTrue))
 			}).Should(Succeed())
+		})
+
+		It("should create a Workload and verify the AdmissionCheck is Pending", func(ctx context.Context) {
+			By("ensuring there is no silence for the test alert")
+			Expect(alertManagerClient.DeleteSilencesByAlertName(ctx, "TestAlertAlwaysFiring")).To(Succeed())
 
 			By("creating a Workload with generated name")
-			workload := &kueue.Workload{
+			workload = &kueue.Workload{
 				ObjectMeta: metav1.ObjectMeta{
 					GenerateName: "test-workload-",
 					Namespace:    nsName,
@@ -446,15 +434,14 @@ var _ = Describe("Manager", Ordered, func() {
 			}
 			Expect(k8sClient.Create(ctx, workload)).To(Succeed())
 
-			By("Ensure there is not silence for the test alert")
-			Expect(alertManagerClient.DeleteSilencesByAlertName(ctx, "TestAlertAlwaysFiring")).To(Succeed())
-
 			By("verifying the workload admission check status is pending")
 			verifyWorkloadAdmissionCheckStatus(
 				ctx, k8sClient, workload.Name, nsName, admissionCheckName,
 				kueue.CheckStatePending, "denying workload",
 			)
+		})
 
+		It("should verify Workload AdmissionCheck is Ready", func(ctx context.Context) {
 			By("creating a silence for the test alert")
 			silenceID, err := alertManagerClient.SilenceAlert(
 				ctx,
