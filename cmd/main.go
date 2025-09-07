@@ -332,7 +332,6 @@ func main() {
 		admissionManager,
 		eventCh,
 		mgr.GetClient(),
-		30*time.Second, // Check every 30 seconds
 		ctrl.Log.WithName("enqueuer"),
 	)
 
