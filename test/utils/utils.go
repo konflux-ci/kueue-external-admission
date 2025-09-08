@@ -23,8 +23,6 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-
-	. "github.com/onsi/ginkgo/v2" //nolint:golint,revive,staticcheck
 )
 
 // Run executes the provided command within this context
@@ -33,12 +31,12 @@ func Run(cmd *exec.Cmd) (string, error) {
 	cmd.Dir = dir
 
 	if err := os.Chdir(cmd.Dir); err != nil {
-		_, _ = fmt.Fprintf(GinkgoWriter, "chdir dir: %s\n", err)
+		_, _ = fmt.Fprintf(os.Stderr, "chdir dir: %s\n", err)
 	}
 
 	cmd.Env = append(os.Environ(), "GO111MODULE=on")
 	command := strings.Join(cmd.Args, " ")
-	_, _ = fmt.Fprintf(GinkgoWriter, "running: %s\n", command)
+	_, _ = fmt.Fprintf(os.Stdout, "running: %s\n", command)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return string(output), fmt.Errorf("%s failed with error: (%v) %s", command, err, string(output))
@@ -120,7 +118,7 @@ func LoadImageToKindClusterWithName(name string) error {
 }
 
 // GetNonEmptyLines converts given command output string into individual objects
-// according to line breakers, and ignores the empty elements in it.
+// according to line breakers and ignores the empty elements
 func GetNonEmptyLines(output string) []string {
 	var res []string
 	elements := strings.Split(output, "\n")
@@ -129,7 +127,6 @@ func GetNonEmptyLines(output string) []string {
 			res = append(res, element)
 		}
 	}
-
 	return res
 }
 

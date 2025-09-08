@@ -1,6 +1,6 @@
 name: E2E Tests
 
-on:gii
+on:
   pull_request:
 
 jobs:

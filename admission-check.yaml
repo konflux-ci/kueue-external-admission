@@ -1,6 +1,98 @@
 apiVersion: kueue.x-k8s.io/v1beta1
 kind: AdmissionCheck
 metadata:
-  name: am-test
+  name: sample-admission-check
 spec:
   controllerName: konflux-ci.dev/kueue-external-admission
+  # REQUIRED: Must specify parameters referencing an ExternalAdmissionConfig
+  # The controller no longer supports default configurations
+  parameters:
+    apiGroup: konflux-ci.dev
+    kind: ExternalAdmissionConfig
+    name: alertmanager-config
+
+  # Example ExternalAdmissionConfig that must be created:
+  # ---
+  # apiVersion: konflux-ci.dev/v1alpha1
+  # kind: ExternalAdmissionConfig
+  # metadata:
+  #   name: alertmanager-config
+  # spec:
+  #   provider:
+  #     alertManager:
+  #       connection:
+  #         url: "http://alertmanager.monitoring.svc.cluster.local:9093"
+  #         timeout: "10s"
+  #       alertFilters:
+  #         - alertNames:
+  #             - "HighCPUUsage"
+  #             - "HighMemoryUsage"
+  #             - "NodeNotReady"
+  #         - alertNames:
+  #             - "KubernetesPodCrashLooping"
+  #             - "DiskSpaceRunningLow"
+  #           # Future: workloadSelector for applying to specific workloads
+  #           # workloadSelector:
+  #           #   matchLabels:
+  #           #     team: "backend"
+  #       syncConfig:
+  #         interval: "30s"
+
+---
+# Example workflow demonstrating how event-driven admission works:
+#
+# 1. WORKLOAD CREATED:
+# apiVersion: kueue.x-k8s.io/v1beta1
+# kind: Workload
+# metadata:
+#   name: my-workload
+# status:
+#   admissionChecks:
+#   - name: sample-admission-check
+#     state: Pending
+#     message: "denying workload due to firing alerts: HighCPUUsage, NodeNotReady"
+#
+# 2. ALERTS RESOLVE (CPU usage drops, node becomes ready)
+#    - AlertMonitor detects the change every 30 seconds
+#    - Emits GenericEvent for affected workloads
+#    - WorkloadReconciler is triggered via WatchesRawSource
+#
+# 3. WORKLOAD RE-EVALUATED:
+# status:
+#   admissionChecks:
+#   - name: sample-admission-check
+#     state: Ready
+#     message: "approving workload"
+#
+# 4. WORKLOAD GETS ADMITTED:
+#    - Kueue sees the Ready state and admits the workload
+#    - Workload starts running on the cluster
+#
+# WITHOUT the event system, the workload would remain stuck in
+# denial state even after alerts resolve, requiring manual intervention.
+
+---
+# Alert Monitor Architecture:
+#
+# ┌─────────────────┐    ┌──────────────────┐    ┌─────────────────────┐
+# │   AlertManager  │◄───│ AlertMonitor     │◄───│  AdmissionService   │
+# │   (Prometheus)  │    │ (every 30s)     │    │  (per-check config) │
+# └─────────────────┘    └──────────────────┘    └─────────────────────┘
+#                                │
+#                                ▼
+#                        ┌──────────────────┐
+#                        │  Events Channel  │
+#                        │  GenericEvent    │
+#                        └──────────────────┘
+#                                │
+#                                ▼
+#                        ┌──────────────────┐
+#                        │ WorkloadReconciler│
+#                        │ WatchesRawSource │
+#                        └──────────────────┘
+#                                │
+#                                ▼
+#                        ┌──────────────────┐
+#                        │  Workload Status │
+#                        │  Updated         │
+#                        └──────────────────┘

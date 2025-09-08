@@ -1,0 +1,71 @@
+apiVersion: konflux-ci.dev/v1alpha1
+kind: ExternalAdmissionConfig
+metadata:
+  name: alertmanager-config
+  namespace: default
+spec:
+  provider:
+    alertManager:
+      connection:
+        url: "http://alertmanager-operated.monitoring.svc.cluster.local:9093"
+        timeout: "10s"
+        # Example: Bearer token authentication using a file
+        # bearerToken:
+        #   tokenFile: "/var/run/secrets/kubernetes.io/serviceaccount/token"
+      alertFilters:
+        - alertNames:
+            - "HighCPUUsage"
+            - "HighMemoryUsage"
+            - "NodeNotReady"
+          labelSelectors:
+            - name: "severity"
+              value: "critical"
+              operator: "equals"
+        - alertNames:
+            - "KubernetesPodCrashLooping"
+            - "DiskSpaceRunningLow"
+            - "PrometheusTargetDown"
+          labelSelectors:
+            - name: "team"
+              value: "platform|infrastructure"
+              operator: "regex"
+      syncConfig:
+        interval: "30s"
+---
+# Updated AdmissionCheck that references the config
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: AdmissionCheck
+metadata:
+  name: sample-admission-check
+spec:
+  controllerName: konflux-ci.dev/kueue-external-admission
+  parameters:
+    apiGroup: konflux-ci.dev
+    kind: ExternalAdmissionConfig
+    name: alertmanager-config
+---
+# Examples showing how future providers could be added:
+#
+# Webhook provider:
+# apiVersion: konflux-ci.dev/v1alpha1
+# kind: ExternalAdmissionConfig
+# metadata:
+#   name: webhook-config
+# spec:
+#   provider:
+#     webhook:
+#       url: "https://my-admission-webhook.com/check"
+#       timeout: "5s"
+#       headers:
+#         Authorization: "Bearer token"
+#
+# Custom script provider:
+# apiVersion: konflux-ci.dev/v1alpha1
+# kind: ExternalAdmissionConfig
+# metadata:
+#   name: script-config
+# spec:
+#   provider:
+#     customScript:
+#       command: "/usr/local/bin/check-admission.sh"
+#       args: ["--workload", "{{.workload.name}}"]
