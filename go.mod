@@ -2,7 +2,7 @@ module github.com/konflux-ci/kueue-external-admission
 
 go 1.24.0
 
-toolchain go1.24.5
+toolchain go1.25.3
 
 godebug default=go1.23
 
