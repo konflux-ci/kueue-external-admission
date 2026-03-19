@@ -1,8 +1,6 @@
 module github.com/konflux-ci/kueue-external-admission
 
-go 1.24.0
-
-toolchain go1.24.5
+go 1.25.0
 
 godebug default=go1.23
 
@@ -83,7 +81,7 @@ require (
 	golang.org/x/sys v0.31.0 // indirect
 	golang.org/x/term v0.30.0 // indirect
 	golang.org/x/text v0.23.0 // indirect
-	golang.org/x/time v0.11.0 // indirect
+	golang.org/x/time v0.15.0 // indirect
 	golang.org/x/tools v0.31.0 // indirect
 	gomodules.xyz/jsonpatch/v2 v2.5.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20241219192143-6b3ec007d9bb // indirect
