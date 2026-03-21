@@ -4,6 +4,8 @@ import (
 	"flag"
 	"testing"
 	"time"
+
+	. "github.com/onsi/gomega"
 )
 
 func TestControllerFlags_AddFlags(t *testing.T) {
@@ -51,39 +53,29 @@ func TestControllerFlags_AddFlags(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			RegisterTestingT(t)
 			var flags ControllerFlags
 			fs := flag.NewFlagSet("test", flag.ContinueOnError)
 			flags.AddFlags(fs)
 
 			err := fs.Parse(tt.args)
-			if err != nil {
-				t.Fatalf("Failed to parse flags: %v", err)
-			}
+			Expect(err).ToNot(HaveOccurred(), "Failed to parse flags")
 
-			if flags.EnableLeaderElection != tt.expected.EnableLeaderElection {
-				t.Errorf("EnableLeaderElection = %v, want %v", flags.EnableLeaderElection, tt.expected.EnableLeaderElection)
-			}
-			if flags.LeaseDuration != tt.expected.LeaseDuration {
-				t.Errorf("LeaseDuration = %v, want %v", flags.LeaseDuration, tt.expected.LeaseDuration)
-			}
-			if flags.RenewDeadline != tt.expected.RenewDeadline {
-				t.Errorf("RenewDeadline = %v, want %v", flags.RenewDeadline, tt.expected.RenewDeadline)
-			}
-			if flags.RetryPeriod != tt.expected.RetryPeriod {
-				t.Errorf("RetryPeriod = %v, want %v", flags.RetryPeriod, tt.expected.RetryPeriod)
-			}
+			Expect(flags.EnableLeaderElection).To(Equal(tt.expected.EnableLeaderElection))
+			Expect(flags.LeaseDuration).To(Equal(tt.expected.LeaseDuration))
+			Expect(flags.RenewDeadline).To(Equal(tt.expected.RenewDeadline))
+			Expect(flags.RetryPeriod).To(Equal(tt.expected.RetryPeriod))
 		})
 	}
 }
 
 func TestControllerFlags_InvalidDuration(t *testing.T) {
+	RegisterTestingT(t)
 	var flags ControllerFlags
 	fs := flag.NewFlagSet("test", flag.ContinueOnError)
 	flags.AddFlags(fs)
 
 	// Test invalid duration format
 	err := fs.Parse([]string{"--leader-elect-lease-duration=invalid"})
-	if err == nil {
-		t.Error("Expected error for invalid duration format, got nil")
-	}
+	Expect(err).To(HaveOccurred(), "Expected error for invalid duration format")
 }

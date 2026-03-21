@@ -28,11 +28,11 @@ import (
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/certwatcher"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
@@ -40,13 +40,19 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	"github.com/konflux-ci/kueue-external-admission/internal/controller"
-	"github.com/konflux-ci/kueue-external-admission/pkg/watcher"
+	"github.com/konflux-ci/kueue-external-admission/pkg/admission/enqueue"
+	"github.com/konflux-ci/kueue-external-admission/pkg/admission/factory"
 
+	konfluxcidevv1alpha1 "github.com/konflux-ci/kueue-external-admission/api/konflux-ci.dev/v1alpha1"
 	// +kubebuilder:scaffold:imports
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 
 	"k8s.io/utils/clock"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
+
+	// Import providers to register their factories
+
+	admissionmanager "github.com/konflux-ci/kueue-external-admission/pkg/admission/manager"
 )
 
 var (
@@ -57,6 +63,7 @@ var (
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
+	utilruntime.Must(konfluxcidevv1alpha1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 	utilruntime.Must(kueue.AddToScheme(scheme))
 }
@@ -151,12 +158,7 @@ func main() {
 		"retry-period", cliFlags.RetryPeriod,
 		"leader-election-enabled", cliFlags.EnableLeaderElection)
 
-	// parse watcher sync period
-	watcherSyncPeriodDuration, err := time.ParseDuration(cliFlags.WatcherSyncPeriod)
-	if err != nil {
-		setupLog.Error(err, "could not parse provided watcher sync period as Duration")
-		os.Exit(1)
-	}
+	// Note: watcher sync period not needed with new AlertManager approach
 
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
 	// due to its vulnerabilities. More specifically, disabling http/2 will
@@ -292,41 +294,61 @@ func main() {
 		setupLog.Error(err, "unable to start manager")
 		os.Exit(1)
 	}
-
-	if err = (&controller.AdmissionCheckReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller",
-			"controller", "AdmissionCheck")
+	// Initialize the admission manager
+	admissionManager := admissionmanager.NewManager(ctrl.Log.WithName("admission-manager"))
+	// Add admission manager to manager so it starts/stops with the manager
+	if err = mgr.Add(admissionManager); err != nil {
+		setupLog.Error(err, "unable to add admission manager to manager")
 		os.Exit(1)
 	}
 
+	// Setup signal handler context
 	ctx := ctrl.SetupSignalHandler()
 
-	watcher, eventsCh := watcher.NewWatcher(
-		controller.NewWorkloadLister(mgr.GetClient()),
-		watcher.NewConfigAdmitter(
-			mgr.GetClient(),
-			types.NamespacedName{
-				Namespace: "kueue-external-admission",
-				Name:      "alert-mgr-kueue-admission-config",
-			},
-			ctrl.Log.WithName("config-admitter"),
-		),
-		watcherSyncPeriodDuration,
-	)
-	if err = mgr.Add(watcher); err != nil {
-		setupLog.Error(err, "Unable to add watcher to the manger")
+	// Setup field indexer for AdmissionCheck references to ExternalAdmissionConfig
+	if err := controller.SetupIndexer(ctx, mgr.GetFieldIndexer()); err != nil {
+		setupLog.Error(err, "unable to setup field indexer")
 		os.Exit(1)
 	}
 
-	if err = (controller.NewWorkloadController(
+	// Setup AdmissionCheck reconciler
+	admitterFactory := factory.NewFactory()
+	admissionCheckReconciler, err := controller.NewAdmissionCheckReconciler(
+		mgr.GetClient(), mgr.GetScheme(), admissionManager, admitterFactory)
+	if err != nil {
+		setupLog.Error(err, "unable to create AdmissionCheck controller")
+		os.Exit(1)
+	}
+	if err = admissionCheckReconciler.SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "AdmissionCheck")
+		os.Exit(1)
+	}
+
+	// Create event channel
+	eventCh := make(chan event.GenericEvent)
+
+	// Create enqueuer to watch for admission result changes
+	enqueuer := enqueue.NewEnqueuer(
+		admissionManager,
+		eventCh,
+		mgr.GetClient(),
+		ctrl.Log.WithName("enqueuer"),
+	)
+
+	// Add alert enqueuer to manager so it starts/stops with the manager
+	if err = mgr.Add(enqueuer); err != nil {
+		setupLog.Error(err, "unable to add enqueuer to manager")
+		os.Exit(1)
+	}
+
+	// Set up the WorkloadReconciler with event channel
+	workloadController := controller.NewWorkloadController(
 		mgr.GetClient(),
 		mgr.GetScheme(),
-		watcher,
+		admissionManager,
 		clock.RealClock{},
-	)).SetupWithManager(mgr, eventsCh); err != nil {
+	)
+	if err = workloadController.SetupWithManager(mgr, eventCh); err != nil {
 		setupLog.Error(err, "unable to create controller",
 			"controller", "Workload")
 		os.Exit(1)

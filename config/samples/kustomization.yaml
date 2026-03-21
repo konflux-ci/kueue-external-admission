@@ -1,0 +1,4 @@
+## Append samples of your project ##
+resources:
+- konflux-ci.dev_v1alpha1_externaladmissionconfig.yaml
+# +kubebuilder:scaffold:manifestskustomizesamples

@@ -1,0 +1,92 @@
+---
+apiVersion: konflux-ci.dev/v1alpha1
+kind: ExternalAdmissionConfig
+metadata:
+  name: test-alertmanager-config
+spec:
+  provider:
+    alertManager:
+      connection:
+        url: "http://alertmanager-operated.monitoring.svc.cluster.local:9093/api/v2"
+        timeout: "10s"
+      alertFilters:
+        - alertNames:
+            - TestAlertAlwaysFiring
+      syncConfig:
+        interval: "10s"
+
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: AdmissionCheck
+metadata:
+  name: test-alertmanager-check
+spec:
+  controllerName: konflux-ci.dev/kueue-external-admission
+  parameters:
+    apiGroup: konflux-ci.dev
+    kind: ExternalAdmissionConfig
+    name: test-alertmanager-config
+---
+apiVersion: konflux-ci.dev/v1alpha1
+kind: ExternalAdmissionConfig
+metadata:
+  name: test-alertmanager-config-2
+spec:
+  provider:
+    alertManager:
+      connection:
+        url: "http://alertmanager-operated.monitoring.svc.cluster.local:9093/api/v2"
+        timeout: "10s"
+      alertFilters:
+        - alertNames:
+            - TestAlert
+      syncConfig:
+        interval: "10s"
+
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: AdmissionCheck
+metadata:
+  name: test-alertmanager-check-2
+spec:
+  controllerName: konflux-ci.dev/kueue-external-admission
+  parameters:
+    apiGroup: konflux-ci.dev
+    kind: ExternalAdmissionConfig
+    name: test-alertmanager-config-2
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ResourceFlavor
+metadata:
+  name: default
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ClusterQueue
+metadata:
+  name: test-cluster-queue
+spec:
+  namespaceSelector: {}
+  admissionChecks:
+    - test-alertmanager-check
+  resourceGroups:
+    - coveredResources:
+        - cpu
+        - memory
+      flavors:
+        - name: default
+          resources:
+            - name: cpu
+              nominalQuota: "10"
+            - name: memory
+              nominalQuota: "10Gi"
+
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: LocalQueue
+metadata:
+  name: test-local-queue
+  namespace: test-ns
+spec:
+  clusterQueue: test-cluster-queue
+
+

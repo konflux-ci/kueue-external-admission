@@ -5,9 +5,9 @@ metadata:
   name: manager-role
 rules:
 - apiGroups:
-  - ""
+  - konflux-ci.dev
   resources:
-  - configmaps
+  - externaladmissionconfigs
   verbs:
   - get
   - list
