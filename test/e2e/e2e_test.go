@@ -106,8 +106,14 @@ var _ = Describe("Manager", Ordered, func() {
 	})
 
 	// After all tests have been executed, clean up by undeploying the controller, uninstalling CRDs,
-	// and deleting the namespace.
+	// and deleting the namespace. When coverage collection is enabled, skip cleanup so the
+	// controller pod stays running for coverport to collect coverage data via HTTP. The CI
+	// workflow handles cleanup in a later step after coverage collection.
 	AfterAll(func() {
+		if os.Getenv("ENABLE_COVERAGE") == "true" {
+			return
+		}
+
 		By("cleaning up the curl pod for metrics")
 		cmd := exec.Command("kubectl", "delete", "pod", "curl-metrics", "-n", namespace)
 		_, _ = utils.Run(cmd)

@@ -8,6 +8,7 @@ godebug default=go1.23
 
 require (
 	github.com/go-logr/logr v1.4.2
+	github.com/konflux-ci/coverport/instrumentation/go v0.0.0-20260323134922-253ce1b67e18
 	github.com/onsi/ginkgo/v2 v2.23.0
 	github.com/onsi/gomega v1.36.2
 	k8s.io/api v0.32.3
