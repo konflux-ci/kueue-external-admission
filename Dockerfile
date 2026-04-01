@@ -2,6 +2,7 @@
 FROM registry.access.redhat.com/ubi9/go-toolset@sha256:564c50dbad93a50dfe1439b295f021dae0bdc8c2aef3ad8be7b2a4dde52f0e2f AS builder
 ARG TARGETOS
 ARG TARGETARCH
+ARG ENABLE_COVERAGE=false
 
 ENV GOTOOLCHAIN=auto
 WORKDIR /opt/app-root/src
@@ -13,7 +14,7 @@ COPY go.sum go.sum
 RUN go mod download
 
 # Copy the go source
-COPY cmd/main.go cmd/main.go
+COPY cmd/ cmd/
 COPY internal/ internal/
 COPY pkg/ pkg/
 
@@ -22,7 +23,13 @@ COPY pkg/ pkg/
 # was called. For example, if we call make docker-build in a local env which has the Apple Silicon M1 SO
 # the docker BUILDPLATFORM arg will be linux/arm64 when for Apple x86 it will be linux/amd64. Therefore,
 # by leaving it empty we can ensure that the container and binary shipped on it will have the same platform.
-RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o manager cmd/main.go
+RUN if [ "$ENABLE_COVERAGE" = "true" ]; then \
+        echo "Building with coverage instrumentation..."; \
+        CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -cover -covermode=atomic -tags=coverage -o manager ./cmd; \
+    else \
+        echo "Building production binary..."; \
+        CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o manager ./cmd; \
+    fi
 
 
 FROM registry.access.redhat.com/ubi9-micro@sha256:955512628a9104d74f7b3b0a91db27a6bbecdd6a1975ce0f1b2658d3cd060b98
