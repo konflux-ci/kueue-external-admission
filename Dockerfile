@@ -32,7 +32,7 @@ RUN if [ "$ENABLE_COVERAGE" = "true" ]; then \
     fi
 
 
-FROM registry.access.redhat.com/ubi9-micro@sha256:955512628a9104d74f7b3b0a91db27a6bbecdd6a1975ce0f1b2658d3cd060b98
+FROM registry.access.redhat.com/ubi9-micro@sha256:6d9eff186ce3ccf399c1835265e7fd3f83bd112cc3422da2d39fd44e234aab59
 WORKDIR /
 COPY --from=builder /opt/app-root/src/manager .
 COPY LICENSE /licenses/
